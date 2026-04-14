@@ -94,16 +94,18 @@ export default function SplashScreen() {
   return (
     <View style={styles.container} testID="splash-screen">
       <View style={styles.overlay} />
-      <Animated.Image
-        source={require('../assets/images/logo.png')}
-        style={[styles.logo, { opacity: logoFade, transform: [{ scale: logoScale }] }]}
-        resizeMode="contain"
-        testID="splash-logo"
-      />
-      <Animated.View style={[styles.titleRow, { opacity: logoFade }]}>
-        <Text style={styles.brandName}>GS PINNACLE IAS</Text>
-        <Text style={styles.tagline}>Excellence in Civil Services Preparation</Text>
-      </Animated.View>
+      <View style={styles.contentWrapper}>
+        <Animated.Image
+          source={require('../assets/images/logo.png')}
+          style={[styles.logo, { opacity: logoFade, transform: [{ scale: logoScale }] }]}
+          resizeMode="contain"
+          testID="splash-logo"
+        />
+        <Animated.View style={[styles.titleRow, { opacity: logoFade }]}>
+          <Text style={styles.brandName}>GS PINNACLE IAS</Text>
+          <Text style={styles.tagline}>Excellence in Civil Services Preparation</Text>
+        </Animated.View>
+      </View>
       {showShlokas && (
         <Animated.View style={[styles.shlokaBox, { opacity: shlokaFade }]}>
           <Text style={styles.sanskrit}>{SHLOKAS[currentShloka].sanskrit}</Text>
@@ -117,9 +119,10 @@ export default function SplashScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A1628', alignItems: 'center', justifyContent: 'center' },
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10,22,40,0.85)' },
-  logo: { width: width * 0.4, height: width * 0.4, zIndex: 2 },
-  titleRow: { alignItems: 'center', marginTop: 20, zIndex: 2 },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10,22,40,0.85)', pointerEvents: 'none' },
+  contentWrapper: { zIndex: 2, alignItems: 'center', justifyContent: 'center', flex: 1 },
+  logo: { width: width * 0.4, height: width * 0.4 },
+  titleRow: { alignItems: 'center', marginTop: 20 },
   brandName: { fontSize: 26, fontWeight: '800', color: '#FFFFFF', letterSpacing: 3 },
   tagline: { fontSize: 13, color: '#94A3B8', marginTop: 6, letterSpacing: 1 },
   shlokaBox: { position: 'absolute', bottom: 80, alignItems: 'center', paddingHorizontal: 30, zIndex: 2 },

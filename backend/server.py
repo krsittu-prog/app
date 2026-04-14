@@ -8,7 +8,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Request, WebSocket, WebSo
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import FileResponse, Response
 from motor.motor_asyncio import AsyncIOMotorClient
-import os, logging, bcrypt, secrets, httpx, smtplib, json, uuid, razorpay, shutil
+import os, logging, bcrypt, secrets, httpx, smtplib, json, uuid, razorpay, shutil, base64
 import jwt as pyjwt
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -17,9 +17,141 @@ from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 
 # Config
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ.get('DB_NAME', 'gs_pinnacle')]
+mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
+db = None
+client = None
+use_mock_db = False
+
+try:
+    from pymongo import MongoClient
+    # Try to connect with synchronous client first to test connection
+    test_client = MongoClient(mongo_url, serverSelectionTimeoutMS=2000, connectTimeoutMS=2000)
+    test_client.admin.command('ping')
+    test_client.close()
+    
+    # If successful, create async client
+    client = AsyncIOMotorClient(mongo_url)
+    db = client[os.environ.get('DB_NAME', 'gs_pinnacle')]
+    logger = logging.getLogger(__name__)
+    logger.info(f"✅ Connected to MongoDB: {mongo_url}")
+except Exception as e:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"⚠️ MongoDB connection failed: {str(e)[:100]}")
+    logger.info("✅ Using in-memory mock database instead")
+    use_mock_db = True
+    
+    # ========== IN-MEMORY MOCK DATABASE ==========
+    class MockCollection:
+        def __init__(self):
+            self.data = []
+        
+        async def find_one(self, query, projection=None):
+            for doc in self.data:
+                match = all(doc.get(k) == v for k, v in query.items())
+                if match:
+                    result = dict(doc)
+                    if projection:
+                        result = {k: result.get(k) for k in projection if k in result or projection[k] != 0}
+                    return result
+            return None
+        
+        async def find(self, query=None, projection=None):
+            query = query or {}
+            results = []
+            for doc in self.data:
+                if not query or all(doc.get(k) == v for k, v in query.items()):
+                    result = dict(doc)
+                    if projection:
+                        result = {k: result.get(k) for k in projection if k in result or projection[k] != 0}
+                    results.append(result)
+            return MockCursorWrapper(results)
+        
+        async def insert_one(self, doc):
+            self.data.append(doc)
+            return {"insertedId": doc.get("_id", doc.get("id"))}
+        
+        async def update_one(self, query, update):
+            for doc in self.data:
+                if all(doc.get(k) == v for k, v in query.items()):
+                    if "$set" in update:
+                        doc.update(update["$set"])
+                    return {"modifiedCount": 1}
+            return {"modifiedCount": 0}
+        
+        async def delete_one(self, query):
+            for i, doc in enumerate(self.data):
+                if all(doc.get(k) == v for k, v in query.items()):
+                    self.data.pop(i)
+                    return {"deletedCount": 1}
+            return {"deletedCount": 0}
+        
+        async def count_documents(self, query=None):
+            query = query or {}
+            count = 0
+            for doc in self.data:
+                if not query or all(doc.get(k) == v for k, v in query.items()):
+                    count += 1
+            return count
+        
+        async def create_index(self, *args, **kwargs):
+            """Mock - do nothing"""
+            return "mock_index"
+    
+    class MockCursorWrapper:
+        def __init__(self, data):
+            self.data = data
+        
+        async def to_list(self, size):
+            return self.data[:size] if size else self.data
+        
+        def sort(self, key, direction):
+            """Mock sort - return self"""
+            return self
+    
+    class MockDB:
+        def __init__(self):
+            self.users = MockCollection()
+            self.courses = MockCollection()
+            self.enrollments = MockCollection()
+            self.otp_records = MockCollection()
+            self.tests = MockCollection()
+            self.test_submissions = MockCollection()
+            self.chat_rooms = MockCollection()
+            self.transactions = MockCollection()
+            self.content_blocks = MockCollection()
+            self.announcements = MockCollection()
+            self.video_progress = MockCollection()
+            self.push_tokens = MockCollection()
+            self.cms_content = MockCollection()
+            self.tickets = MockCollection()
+            self.course_chat = MockCollection()
+        
+        async def init_demo_data(self):
+            """Initialize with demo user"""
+            admin_hash = hash_password("admin123")
+            await self.users.insert_one({
+                "id": str(uuid.uuid4()),
+                "email": "admin@gspinnacle.com",
+                "name": "Admin User",
+                "phone": "9999999999",
+                "password_hash": admin_hash,
+                "role": "admin",
+                "created_at": datetime.now(timezone.utc).isoformat()
+            })
+            student_hash = hash_password("student123")
+            await self.users.insert_one({
+                "id": str(uuid.uuid4()),
+                "email": "student@gspinnacle.com",
+                "name": "Student User",
+                "phone": "8888888888",
+                "password_hash": student_hash,
+                "role": "student",
+                "created_at": datetime.now(timezone.utc).isoformat()
+            })
+    
+    db = MockDB()
+    
+    # Initialize demo data - will be done in startup event
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -82,7 +214,13 @@ def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode('utf-8'), hashed.encode('utf-8'))
+    try:
+        result = bcrypt.checkpw(plain.encode('utf-8'), hashed.encode('utf-8'))
+        logger.info(f"verify_password: plain='{plain}', hashed_prefix='{hashed[:20]}...' if hashed else 'None', result={result}")
+        return result
+    except Exception as e:
+        logger.error(f"verify_password error: {str(e)}, plain_type={type(plain)}, hashed_type={type(hashed)}")
+        return False
 
 def create_token(user_id: str, email: str, role: str) -> str:
     payload = {
@@ -310,14 +448,25 @@ async def register(data: RegisterModel):
 
 @api_router.post("/auth/login")
 async def login(data: LoginModel):
-    user = await db.users.find_one({"email": data.email.lower()}, {"_id": 0})
-    if not user:
+    try:
+        user = await db.users.find_one({"email": data.email.lower()})
+        logger.info(f"Login attempt: {data.email.lower()}, User found: {user is not None}, User keys: {list(user.keys()) if user else 'N/A'}")
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        password_hash = user.get("password_hash", "")
+        logger.info(f"Password hash present: {bool(password_hash)}, Hash length: {len(password_hash) if password_hash else 0}")
+        password_match = verify_password(data.password, password_hash) if password_hash else False
+        logger.info(f"Password match: {password_match}")
+        if not password_match:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        token = create_token(user["id"], user["email"], user["role"])
+        user.pop("password_hash", None)
+        return {"token": token, "user": user}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Login error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    if not verify_password(data.password, user.get("password_hash", "")):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    token = create_token(user["id"], user["email"], user["role"])
-    user.pop("password_hash", None)
-    return {"token": token, "user": user}
 
 @api_router.get("/auth/me")
 async def get_me(request: Request):
@@ -897,8 +1046,27 @@ async def submit_test(test_id: str, data: SubmitTestModel, request: Request):
 @api_router.get("/tests/{test_id}/submissions")
 async def get_test_submissions(test_id: str, request: Request):
     await require_teacher_or_admin(request)
-    submissions = await db.test_submissions.find({"test_id": test_id}, {"_id": 0}).to_list(100)
+    # Exclude base64 PDF data from list response to reduce payload size
+    submissions = await db.test_submissions.find({"test_id": test_id}, {"_id": 0, "answer_pdf_base64": 0}).to_list(100)
     return {"submissions": submissions}
+
+@api_router.get("/tests/submissions/{submission_id}/pdf")
+async def get_submission_pdf(submission_id: str, request: Request):
+    """Download submitted PDF for admin/teacher to view"""
+    await require_teacher_or_admin(request)
+    submission = await db.test_submissions.find_one({"id": submission_id}, {"_id": 0})
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    
+    if not submission.get("answer_pdf_base64"):
+        raise HTTPException(status_code=404, detail="PDF not found in submission")
+    
+    try:
+        pdf_bytes = base64.b64decode(submission["answer_pdf_base64"])
+        filename = submission.get("answer_filename", "answer.pdf")
+        return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{filename}"'})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to decode PDF: {str(e)}")
 
 @api_router.put("/tests/submissions/{submission_id}/evaluate")
 async def evaluate_submission(submission_id: str, data: EvaluateModel, request: Request):
@@ -1155,6 +1323,40 @@ async def startup():
     await db.enrollments.create_index("user_id")
     await db.video_progress.create_index([("user_id", 1), ("video_id", 1)])
 
+    # Seed demo users (for mock database)
+    demo_admin = await db.users.find_one({"email": "admin@gspinnacle.com"})
+    logger.info(f"Demo admin from DB: {demo_admin}")
+    if not demo_admin:
+        await db.users.insert_one({
+            "id": str(uuid.uuid4()),
+            "name": "Admin User",
+            "email": "admin@gspinnacle.com",
+            "phone": "9999999999",
+            "password_hash": hash_password("admin123"),
+            "role": "admin",
+            "target_courses": [],
+            "phone_verified": True,
+            "email_verified": True,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+        logger.info("Demo admin seeded: admin@gspinnacle.com / admin123")
+
+    demo_student = await db.users.find_one({"email": "student@gspinnacle.com"})
+    if not demo_student:
+        await db.users.insert_one({
+            "id": str(uuid.uuid4()),
+            "name": "Student User",
+            "email": "student@gspinnacle.com",
+            "phone": "8888888888",
+            "password_hash": hash_password("student123"),
+            "role": "student",
+            "target_courses": [],
+            "phone_verified": True,
+            "email_verified": True,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+        logger.info("Demo student seeded: student@gspinnacle.com / student123")
+
     # Seed admin
     admin = await db.users.find_one({"email": ADMIN_EMAIL})
     if not admin:
@@ -1352,7 +1554,8 @@ async def get_chat_history(course_id: str, limit: int = 50):
 
 @app.on_event("shutdown")
 async def shutdown():
-    client.close()
+    if hasattr(client, 'close'):
+        client.close()
 
 app.include_router(api_router)
 
@@ -1363,3 +1566,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

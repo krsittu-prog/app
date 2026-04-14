@@ -84,8 +84,22 @@ export default function PlayerScreen() {
   // Build video HTML for WebView (works on native)
   function getVideoHtml(): string {
     if (isYouTube && ytId) {
-      return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0}body{background:#000}iframe{width:100%;height:100vh;border:none}</style></head>
-<body><iframe src="https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1&playsinline=1${savedPosition > 0 ? `&start=${Math.floor(savedPosition)}` : ''}" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe></body></html>`;
+      // Use optimized YouTube embed parameters for in-app playback
+      const params = [
+        'autoplay=1',
+        'rel=0',
+        'modestbranding=1',
+        'playsinline=1',
+        'fs=1',
+        'iv_load_policy=3',
+        'controls=1',
+        'disablekb=0'
+      ].join('&');
+      
+      const startParam = savedPosition > 0 ? `&start=${Math.floor(savedPosition)}` : '';
+      
+      return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><style>*{margin:0;padding:0;box-sizing:border-box}html,body{width:100%;height:100%;background:#000}iframe{width:100%;height:100%;border:none;display:block}</style></head>
+<body><iframe src="https://www.youtube.com/embed/${ytId}?${params}${startParam}" allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write" allowfullscreen></iframe></body></html>`;
     }
     return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0}video{width:100%;height:100vh;background:#000}</style></head>
 <body><video id="v" src="${videoUrl}" controls autoplay playsinline></video>
@@ -124,6 +138,10 @@ setInterval(function(){if(window.ReactNativeWebView)window.ReactNativeWebView.po
             mediaPlaybackRequiresUserAction={false}
             allowsFullscreenVideo
             userAgent={MOBILE_UA}
+            scalesPageToFit
+            scrollEnabled={false}
+            originWhitelist={['*']}
+            mixedContentMode="always"
             onMessage={(e) => { try { const d = JSON.parse(e.nativeEvent.data); currentPosition.current = d.pos; videoDuration.current = d.dur; } catch {} }}
             testID="video-webview"
           />

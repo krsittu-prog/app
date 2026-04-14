@@ -189,6 +189,7 @@ class VideoModel(BaseModel):
     url: str
     duration: int = 0
     order: int = 0
+    section_id: str = ""
 
 class TestModel(BaseModel):
     title: str
@@ -260,6 +261,16 @@ class PushTokenModel(BaseModel):
 class AnnouncementModel(BaseModel):
     title: str
     message: str
+
+class SectionModel(BaseModel):
+    title: str
+    order: int = 0
+    is_locked: bool = False
+
+class SectionUpdateModel(BaseModel):
+    title: Optional[str] = None
+    order: Optional[int] = None
+    is_locked: Optional[bool] = None
 
 # ============ AUTH ROUTES ============
 @api_router.post("/auth/register")
@@ -527,6 +538,50 @@ async def update_course(course_id: str, request: Request):
 async def delete_course(course_id: str, request: Request):
     await require_admin(request)
     await db.courses.delete_one({"id": course_id})
+    await db.course_sections.delete_many({"course_id": course_id})
+    await db.videos.delete_many({"course_id": course_id})
+    await db.course_materials.delete_many({"course_id": course_id})
+    return {"success": True}
+
+# ============ COURSE SECTIONS (FOLDERS) ============
+@api_router.post("/courses/{course_id}/sections")
+async def create_section(course_id: str, data: SectionModel, request: Request):
+    await require_admin(request)
+    section = {
+        "id": str(uuid.uuid4()),
+        "course_id": course_id,
+        "title": data.title,
+        "order": data.order,
+        "is_locked": data.is_locked,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.course_sections.insert_one(section)
+    section.pop("_id", None)
+    return section
+
+@api_router.get("/courses/{course_id}/sections")
+async def list_sections(course_id: str):
+    sections = await db.course_sections.find({"course_id": course_id}, {"_id": 0}).sort("order", 1).to_list(100)
+    for s in sections:
+        s["videos"] = await db.videos.find({"course_id": course_id, "section_id": s["id"]}, {"_id": 0}).sort("order", 1).to_list(100)
+        s["materials"] = await db.course_materials.find({"course_id": course_id, "section_id": s["id"]}, {"_id": 0, "file_data": 0}).to_list(100)
+    return {"sections": sections}
+
+@api_router.put("/sections/{section_id}")
+async def update_section(section_id: str, data: SectionUpdateModel, request: Request):
+    await require_admin(request)
+    updates = {k: v for k, v in data.dict().items() if v is not None}
+    if updates:
+        await db.course_sections.update_one({"id": section_id}, {"$set": updates})
+    section = await db.course_sections.find_one({"id": section_id}, {"_id": 0})
+    return section
+
+@api_router.delete("/sections/{section_id}")
+async def delete_section(section_id: str, request: Request):
+    await require_admin(request)
+    await db.course_sections.delete_one({"id": section_id})
+    await db.videos.delete_many({"section_id": section_id})
+    await db.course_materials.delete_many({"section_id": section_id})
     return {"success": True}
 
 # ============ VIDEO ROUTES ============
@@ -536,7 +591,11 @@ async def add_video(course_id: str, data: VideoModel, request: Request):
     video = {
         "id": str(uuid.uuid4()),
         "course_id": course_id,
-        **data.dict(),
+        "section_id": data.section_id,
+        "title": data.title,
+        "url": data.url,
+        "duration": data.duration,
+        "order": data.order,
         "live_count": 0,
         "total_views": 0,
         "live_count_override": None,
@@ -558,6 +617,7 @@ class MaterialUploadModel(BaseModel):
     title: str
     file_data: str
     filename: str
+    section_id: str = ""
 
 @api_router.post("/courses/{course_id}/materials")
 async def upload_material(course_id: str, data: MaterialUploadModel, request: Request):
@@ -565,6 +625,7 @@ async def upload_material(course_id: str, data: MaterialUploadModel, request: Re
     material = {
         "id": str(uuid.uuid4()),
         "course_id": course_id,
+        "section_id": data.section_id,
         "title": data.title,
         "filename": data.filename,
         "file_data": data.file_data,

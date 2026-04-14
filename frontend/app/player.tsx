@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, Dimensions, Platform, KeyboardAvoidingView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { WebView } from 'react-native-webview';
 import { useAuth } from '../src/context/AuthContext';
 import { apiCall } from '../src/api';
 import { COLORS } from '../src/theme';
@@ -11,18 +12,25 @@ const { width } = Dimensions.get('window');
 const VIDEO_H = width * 0.56;
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5];
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
+const MOBILE_UA = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
 function getYouTubeId(url: string): string | null {
   const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
   return m ? m[1] : null;
 }
 
+function isUploadedVideo(url: string): boolean {
+  return url.startsWith('/api/uploads/') || url.includes('/api/uploads/');
+}
+
 export default function PlayerScreen() {
   const params = useLocalSearchParams<{ courseId: string; videoId: string; videoUrl: string; videoTitle: string; courseName: string; chatEnabled: string }>();
-  const { courseId, videoId, videoUrl, videoTitle, courseName, chatEnabled: chatEnabledParam } = params;
+  const { courseId, videoId, videoUrl: rawUrl, videoTitle, courseName, chatEnabled: chatEnabledParam } = params;
   const { user } = useAuth();
   const router = useRouter();
 
+  // Resolve uploaded video URLs to full path
+  const videoUrl = rawUrl && isUploadedVideo(rawUrl) ? `${BACKEND_URL}${rawUrl}` : rawUrl;
   const chatEnabled = chatEnabledParam !== 'false';
   const [speed, setSpeed] = useState(1);
   const [showSpeeds, setShowSpeeds] = useState(false);
@@ -30,11 +38,9 @@ export default function PlayerScreen() {
   const [chatInput, setChatInput] = useState('');
   const [onlineCount, setOnlineCount] = useState(1);
   const [wsConnected, setWsConnected] = useState(false);
-  const [isPip, setIsPip] = useState(false);
   const [savedPosition, setSavedPosition] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const flatListRef = useRef<FlatList>(null);
-  const webViewRef = useRef<any>(null);
   const progressInterval = useRef<any>(null);
   const currentPosition = useRef(0);
   const videoDuration = useRef(0);
@@ -42,355 +48,139 @@ export default function PlayerScreen() {
   const isYouTube = videoUrl ? (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) : false;
   const ytId = isYouTube && videoUrl ? getYouTubeId(videoUrl) : null;
 
-  // Load saved progress
   useEffect(() => {
     if (videoId) loadVideoProgress();
-    if (chatEnabled) {
-      loadChatHistory();
-      connectWebSocket();
-    }
-    // Save progress every 10 seconds
+    if (chatEnabled) { loadChatHistory(); connectWebSocket(); }
     progressInterval.current = setInterval(() => saveProgress(), 10000);
-    return () => {
-      if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
-      if (progressInterval.current) clearInterval(progressInterval.current);
-      saveProgress(); // Save on unmount
-    };
+    return () => { if (wsRef.current) { wsRef.current.close(); wsRef.current = null; } if (progressInterval.current) clearInterval(progressInterval.current); saveProgress(); };
   }, [courseId, videoId]);
 
-  async function loadVideoProgress() {
-    try {
-      const data = await apiCall(`/api/videos/${videoId}/progress`);
-      if (data.progress && data.progress.position > 0) {
-        setSavedPosition(data.progress.position);
-        currentPosition.current = data.progress.position;
-        videoDuration.current = data.progress.duration || 0;
-      }
-    } catch (e) { /* */ }
-  }
-
-  async function saveProgress() {
-    if (!videoId || currentPosition.current <= 0) return;
-    try {
-      await apiCall(`/api/videos/${videoId}/progress`, {
-        method: 'PUT',
-        body: JSON.stringify({ position: currentPosition.current, duration: videoDuration.current || 600 }),
-      });
-    } catch (e) { /* */ }
-  }
-
-  async function loadChatHistory() {
-    try {
-      const data = await apiCall(`/api/courses/${courseId}/chat?limit=50`);
-      setMessages(data.messages || []);
-    } catch (e) { /* */ }
-  }
+  async function loadVideoProgress() { try { const d = await apiCall(`/api/videos/${videoId}/progress`); if (d.progress?.position > 0) { setSavedPosition(d.progress.position); currentPosition.current = d.progress.position; videoDuration.current = d.progress.duration || 0; } } catch {} }
+  async function saveProgress() { if (!videoId || currentPosition.current <= 0) return; try { await apiCall(`/api/videos/${videoId}/progress`, { method: 'PUT', body: JSON.stringify({ position: currentPosition.current, duration: videoDuration.current || 600 }) }); } catch {} }
+  async function loadChatHistory() { try { const d = await apiCall(`/api/courses/${courseId}/chat?limit=50`); setMessages(d.messages || []); } catch {} }
 
   function connectWebSocket() {
     if (!courseId) return;
     const wsUrl = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://');
-    const fullUrl = `${wsUrl}/api/ws/chat/${courseId}?name=${encodeURIComponent(user?.name || 'Student')}&user_id=${user?.id || ''}&role=${user?.role || 'student'}`;
     try {
-      const ws = new WebSocket(fullUrl);
+      const ws = new WebSocket(`${wsUrl}/api/ws/chat/${courseId}?name=${encodeURIComponent(user?.name || 'Student')}&user_id=${user?.id || ''}&role=${user?.role || 'student'}`);
       ws.onopen = () => setWsConnected(true);
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.online_count) setOnlineCount(msg.online_count);
-          setMessages(prev => [...prev, msg]);
-          setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-        } catch (e) { /* */ }
-      };
+      ws.onmessage = (e) => { try { const msg = JSON.parse(e.data); if (msg.online_count) setOnlineCount(msg.online_count); setMessages(p => [...p, msg]); setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100); } catch {} };
       ws.onerror = () => setWsConnected(false);
       ws.onclose = () => setWsConnected(false);
       wsRef.current = ws;
-    } catch (e) { setWsConnected(false); }
+    } catch { setWsConnected(false); }
   }
 
   function sendMessage() {
     if (!chatInput.trim()) return;
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ message: chatInput.trim() }));
-    } else {
-      setMessages(prev => [...prev, { id: Date.now().toString(), user_name: user?.name || 'You', user_role: user?.role || 'student', message: chatInput.trim(), type: 'chat', created_at: new Date().toISOString() }]);
-    }
+    if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ message: chatInput.trim() }));
+    else setMessages(p => [...p, { id: Date.now().toString(), user_name: user?.name || 'You', user_role: user?.role, message: chatInput.trim(), type: 'chat', created_at: new Date().toISOString() }]);
     setChatInput('');
   }
 
-  function changeSpeed(s: number) {
-    setSpeed(s);
-    setShowSpeeds(false);
-    if (Platform.OS === 'web') {
-      try {
-        const vid = document.querySelector('video');
-        if (vid) (vid as HTMLVideoElement).playbackRate = s;
-        const iframe = document.querySelector('iframe');
-        if (iframe) iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'setPlaybackRate', args: [s] }), '*');
-      } catch (e) { /* */ }
-    } else if (webViewRef.current) {
-      webViewRef.current.injectJavaScript(`document.querySelector('video').playbackRate = ${s}; true;`);
+  function changeSpeed(s: number) { setSpeed(s); setShowSpeeds(false); }
+
+  // Build video HTML for WebView (works on native)
+  function getVideoHtml(): string {
+    if (isYouTube && ytId) {
+      return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0}body{background:#000}iframe{width:100%;height:100vh;border:none}</style></head>
+<body><iframe src="https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1&playsinline=1${savedPosition > 0 ? `&start=${Math.floor(savedPosition)}` : ''}" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe></body></html>`;
     }
+    return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0}video{width:100%;height:100vh;background:#000}</style></head>
+<body><video id="v" src="${videoUrl}" controls autoplay playsinline></video>
+<script>var v=document.getElementById('v');v.playbackRate=${speed};${savedPosition > 0 ? `v.currentTime=${savedPosition};` : ''}
+setInterval(function(){if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({pos:v.currentTime,dur:v.duration}))},5000);</script></body></html>`;
   }
-
-  // Picture-in-Picture
-  function togglePip() {
-    if (Platform.OS === 'web') {
-      try {
-        const vid = document.querySelector('video');
-        if (vid) {
-          if (document.pictureInPictureElement) {
-            (document as any).exitPictureInPicture();
-            setIsPip(false);
-          } else {
-            (vid as any).requestPictureInPicture();
-            setIsPip(true);
-          }
-        }
-      } catch (e) { /* PiP not supported */ }
-    }
-  }
-
-  // Track progress from web video
-  useEffect(() => {
-    if (Platform.OS === 'web' && !isYouTube) {
-      const interval = setInterval(() => {
-        try {
-          const vid = document.querySelector('video');
-          if (vid) {
-            currentPosition.current = (vid as HTMLVideoElement).currentTime;
-            videoDuration.current = (vid as HTMLVideoElement).duration || 600;
-          }
-        } catch (e) { /* */ }
-      }, 3000);
-      return () => clearInterval(interval);
-    }
-  }, [isYouTube]);
-
-  // Seek to saved position
-  useEffect(() => {
-    if (savedPosition > 0 && Platform.OS === 'web' && !isYouTube) {
-      const timeout = setTimeout(() => {
-        try {
-          const vid = document.querySelector('video');
-          if (vid) (vid as HTMLVideoElement).currentTime = savedPosition;
-        } catch (e) { /* */ }
-      }, 2000);
-      return () => clearTimeout(timeout);
-    }
-  }, [savedPosition, isYouTube]);
 
   const renderMessage = useCallback(({ item }: { item: any }) => {
-    if (item.type === 'system') {
-      return <View style={styles.systemMsg}><Text style={styles.systemText}>{item.message}</Text></View>;
-    }
+    if (item.type === 'system') return <View style={st.sysMsg}><Text style={st.sysTxt}>{item.message}</Text></View>;
     const isMe = item.user_id === user?.id;
     const isTeacher = item.user_role === 'teacher' || item.user_role === 'admin';
     return (
-      <View style={[styles.chatMsg, isMe && styles.chatMsgMe]} testID={`chat-msg-${item.id}`}>
-        <View style={styles.msgHeader}>
-          <Text style={[styles.msgName, isTeacher && styles.teacherName]}>{isTeacher ? '👨‍🏫 ' : ''}{item.user_name || 'Student'}</Text>
-          {isTeacher && <View style={styles.teacherBadge}><Text style={styles.teacherBadgeText}>FACULTY</Text></View>}
-          <Text style={styles.msgTime}>{formatTime(item.created_at)}</Text>
-        </View>
-        <Text style={styles.msgText}>{item.message}</Text>
+      <View style={[st.chatMsg, isMe && st.chatMsgMe]}>
+        <View style={st.msgHead}><Text style={[st.msgName, isTeacher && st.teacherName]}>{isTeacher ? '👨‍🏫 ' : ''}{item.user_name}</Text>{isTeacher && <View style={st.teacherBadge}><Text style={st.teacherBadgeTxt}>FACULTY</Text></View>}<Text style={st.msgTime}>{formatTime(item.created_at)}</Text></View>
+        <Text style={st.msgTxt}>{item.message}</Text>
       </View>
     );
   }, [user?.id]);
 
   return (
-    <SafeAreaView style={styles.safe} testID="player-screen">
+    <SafeAreaView style={st.safe} testID="player-screen">
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => { saveProgress(); router.back(); }} testID="player-back-btn">
-            <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
-          </TouchableOpacity>
-          <View style={{ flex: 1, marginHorizontal: 12 }}>
-            <Text style={styles.headerTitle} numberOfLines={1}>{videoTitle || 'Video Player'}</Text>
-            <Text style={styles.headerSub} numberOfLines={1}>{courseName || ''}</Text>
-          </View>
-          {chatEnabled && (
-            <View style={styles.liveIndicator}>
-              <View style={[styles.liveDot, wsConnected && styles.liveDotActive]} />
-              <Text style={styles.liveText}>{onlineCount} watching</Text>
-            </View>
-          )}
+        <View style={st.header}>
+          <TouchableOpacity onPress={() => { saveProgress(); router.back(); }} testID="player-back-btn"><Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} /></TouchableOpacity>
+          <View style={{ flex: 1, marginHorizontal: 12 }}><Text style={st.headerTitle} numberOfLines={1}>{videoTitle || 'Video'}</Text><Text style={st.headerSub} numberOfLines={1}>{courseName}</Text></View>
+          {chatEnabled && <View style={st.liveInd}><View style={[st.liveDot, wsConnected && st.liveDotOn]} /><Text style={st.liveTxt}>{onlineCount} watching</Text></View>}
         </View>
 
-        {/* Video Player */}
-        <View style={styles.videoContainer}>
-          {isYouTube && ytId ? (
-            Platform.OS === 'web' ? (
-              <iframe
-                src={`https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1&playsinline=1${savedPosition > 0 ? `&start=${Math.floor(savedPosition)}` : ''}`}
-                style={{ width: '100%', height: '100%', border: 'none' } as any}
-                allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-                allowFullScreen
-              />
-            ) : (
-              (() => { const { WebView } = require('react-native-webview'); return (
-                <WebView ref={webViewRef} source={{ uri: `https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0&playsinline=1${savedPosition > 0 ? `&start=${Math.floor(savedPosition)}` : ''}` }} style={styles.video} allowsFullscreenVideo mediaPlaybackRequiresUserAction={false} javaScriptEnabled testID="youtube-player" />
-              ); })()
-            )
-          ) : videoUrl ? (
-            Platform.OS === 'web' ? (
-              <video
-                src={videoUrl as string}
-                controls
-                autoPlay
-                playsInline
-                style={{ width: '100%', height: '100%', backgroundColor: '#000' } as any}
-              />
-            ) : (
-              (() => { const { WebView } = require('react-native-webview'); return (
-                <WebView ref={webViewRef} source={{ html: `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0}video{width:100%;height:100%;background:#000}</style></head><body><video id="v" src="${videoUrl}" controls autoplay playsinline></video><script>var v=document.getElementById('v');v.playbackRate=${speed};${savedPosition > 0 ? `v.currentTime=${savedPosition};` : ''}setInterval(function(){window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({pos:v.currentTime,dur:v.duration}))},5000);</script></body></html>` }} style={styles.video} allowsFullscreenVideo mediaPlaybackRequiresUserAction={false} javaScriptEnabled onMessage={(e: any) => { try { const d = JSON.parse(e.nativeEvent.data); currentPosition.current = d.pos; videoDuration.current = d.dur; } catch {} }} testID="direct-player" />
-              ); })()
-            )
-          ) : (
-            <View style={[styles.video, styles.noVideo]}>
-              <Ionicons name="videocam-off" size={48} color={COLORS.textMuted} />
-              <Text style={styles.noVideoText}>No video available</Text>
-            </View>
-          )}
+        <View style={st.videoBox}>
+          <WebView
+            source={{ html: getVideoHtml() }}
+            style={{ flex: 1 }}
+            javaScriptEnabled
+            domStorageEnabled
+            allowsInlineMediaPlayback
+            mediaPlaybackRequiresUserAction={false}
+            allowsFullscreenVideo
+            userAgent={MOBILE_UA}
+            onMessage={(e) => { try { const d = JSON.parse(e.nativeEvent.data); currentPosition.current = d.pos; videoDuration.current = d.dur; } catch {} }}
+            testID="video-webview"
+          />
         </View>
 
-        {/* Controls Row */}
-        <View style={styles.controlsRow}>
-          {/* Speed */}
-          <TouchableOpacity style={styles.speedBtn} onPress={() => setShowSpeeds(!showSpeeds)} testID="speed-toggle">
-            <Ionicons name="speedometer" size={14} color={COLORS.primary} />
-            <Text style={styles.speedText}>{speed}x</Text>
-          </TouchableOpacity>
-          {showSpeeds && (
-            <View style={styles.speedOptions}>
-              {SPEEDS.map(s => (
-                <TouchableOpacity key={s} style={[styles.speedChip, speed === s && styles.speedChipActive]} onPress={() => changeSpeed(s)} testID={`speed-${s}`}>
-                  <Text style={[styles.speedChipText, speed === s && { color: '#fff' }]}>{s}x</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-          {/* PiP button */}
-          {Platform.OS === 'web' && !isYouTube && (
-            <TouchableOpacity style={[styles.speedBtn, isPip && styles.pipActive]} onPress={togglePip} testID="pip-toggle">
-              <Ionicons name="resize" size={14} color={isPip ? '#fff' : COLORS.primary} />
-              <Text style={[styles.speedText, isPip && { color: '#fff' }]}>PiP</Text>
-            </TouchableOpacity>
-          )}
-          {/* Resume indicator */}
-          {savedPosition > 0 && (
-            <View style={styles.resumeBadge}>
-              <Ionicons name="play-forward" size={12} color={COLORS.success} />
-              <Text style={styles.resumeText}>Resumed from {formatDuration(savedPosition)}</Text>
-            </View>
-          )}
+        <View style={st.controls}>
+          <TouchableOpacity style={st.speedBtn} onPress={() => setShowSpeeds(!showSpeeds)} testID="speed-toggle"><Ionicons name="speedometer" size={14} color={COLORS.primary} /><Text style={st.speedTxt}>{speed}x</Text></TouchableOpacity>
+          {showSpeeds && <View style={st.speedOpts}>{SPEEDS.map(s => (<TouchableOpacity key={s} style={[st.speedChip, speed === s && st.speedChipAct]} onPress={() => changeSpeed(s)} testID={`speed-${s}`}><Text style={[st.speedChipTxt, speed === s && { color: '#fff' }]}>{s}x</Text></TouchableOpacity>))}</View>}
+          {savedPosition > 0 && <View style={st.resumeBadge}><Ionicons name="play-forward" size={12} color={COLORS.success} /><Text style={st.resumeTxt}>Resumed from {Math.floor(savedPosition / 60)}:{String(Math.floor(savedPosition % 60)).padStart(2, '0')}</Text></View>}
         </View>
 
-        {/* Live Chat or Chat Disabled */}
         {chatEnabled ? (
-          <View style={styles.chatContainer}>
-            <View style={styles.chatHeader}>
-              <Ionicons name="chatbubbles" size={16} color={COLORS.primary} />
-              <Text style={styles.chatTitle}>Live Chat</Text>
-              <View style={[styles.connBadge, wsConnected ? styles.connGreen : styles.connRed]}>
-                <Text style={[styles.connText, { color: wsConnected ? COLORS.success : COLORS.error }]}>
-                  {wsConnected ? 'Connected' : 'Connecting...'}
-                </Text>
-              </View>
-            </View>
-            <FlatList
-              ref={flatListRef}
-              data={messages}
-              keyExtractor={(item, i) => item.id || String(i)}
-              renderItem={renderMessage}
-              style={styles.chatList}
-              contentContainerStyle={styles.chatListContent}
-              onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
-              ListEmptyComponent={
-                <View style={styles.emptyChat}>
-                  <Ionicons name="chatbubble-outline" size={32} color={COLORS.textMuted} />
-                  <Text style={styles.emptyChatText}>No messages yet. Say hello! 👋</Text>
-                </View>
-              }
-            />
-            <View style={styles.chatInputRow}>
-              <TextInput testID="chat-message-input" style={styles.chatInput} value={chatInput} onChangeText={setChatInput} placeholder="Type a message..." placeholderTextColor={COLORS.textMuted} onSubmitEditing={sendMessage} returnKeyType="send" />
-              <TouchableOpacity style={styles.sendBtn} onPress={sendMessage} testID="send-chat-btn">
-                <Ionicons name="send" size={18} color="#fff" />
-              </TouchableOpacity>
-            </View>
+          <View style={st.chatBox}>
+            <View style={st.chatHead}><Ionicons name="chatbubbles" size={16} color={COLORS.primary} /><Text style={st.chatTitle}>Live Chat</Text><View style={[st.connBadge, wsConnected ? st.connG : st.connR]}><Text style={[st.connTxt, { color: wsConnected ? COLORS.success : COLORS.error }]}>{wsConnected ? 'Connected' : 'Connecting...'}</Text></View></View>
+            <FlatList ref={flatListRef} data={messages} keyExtractor={(item, i) => item.id || String(i)} renderItem={renderMessage} style={st.chatList} contentContainerStyle={st.chatListC} onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })} ListEmptyComponent={<View style={st.emptyChat}><Text style={st.emptyChatTxt}>No messages yet. Say hello! 👋</Text></View>} />
+            <View style={st.chatInputRow}><TextInput testID="chat-message-input" style={st.chatInput} value={chatInput} onChangeText={setChatInput} placeholder="Type a message..." placeholderTextColor={COLORS.textMuted} onSubmitEditing={sendMessage} returnKeyType="send" /><TouchableOpacity style={st.sendBtn} onPress={sendMessage} testID="send-chat-btn"><Ionicons name="send" size={18} color="#fff" /></TouchableOpacity></View>
           </View>
-        ) : (
-          <View style={styles.chatDisabled} testID="chat-disabled">
-            <Ionicons name="chatbubbles-outline" size={40} color={COLORS.textMuted} />
-            <Text style={styles.chatDisabledTitle}>Chat is Disabled</Text>
-            <Text style={styles.chatDisabledText}>The admin has disabled live chat for this course</Text>
-          </View>
-        )}
+        ) : <View style={st.chatOff}><Ionicons name="chatbubbles-outline" size={40} color={COLORS.textMuted} /><Text style={st.chatOffTitle}>Chat Disabled</Text></View>}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-function formatTime(dateStr: string): string {
-  try { return new Date(dateStr).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
-}
+function formatTime(d: string) { try { return new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }); } catch { return ''; } }
 
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
-
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.white },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  headerTitle: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
-  headerSub: { fontSize: 11, color: COLORS.textMuted, marginTop: 1 },
-  liveIndicator: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.bgSubtle, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.textMuted },
-  liveDotActive: { backgroundColor: COLORS.live },
-  liveText: { fontSize: 10, fontWeight: '600', color: COLORS.textSecondary },
-  videoContainer: { width: '100%', height: VIDEO_H, backgroundColor: '#000' },
-  video: { flex: 1 },
-  noVideo: { alignItems: 'center', justifyContent: 'center', gap: 8 },
-  noVideoText: { color: COLORS.textMuted, fontSize: 14 },
-  controlsRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border, flexWrap: 'wrap', gap: 6 },
-  speedBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.bgSubtle, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: COLORS.border },
-  speedText: { fontSize: 12, fontWeight: '700', color: COLORS.primary },
-  speedOptions: { flexDirection: 'row', gap: 4, flexWrap: 'wrap' },
-  speedChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: COLORS.bgSubtle, borderWidth: 1, borderColor: COLORS.border },
-  speedChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  speedChipText: { fontSize: 11, fontWeight: '600', color: COLORS.textSecondary },
-  pipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  resumeBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.successBg, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-  resumeText: { fontSize: 10, fontWeight: '600', color: COLORS.success },
-  chatContainer: { flex: 1, backgroundColor: COLORS.bgSubtle },
-  chatHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  chatTitle: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary, flex: 1 },
-  connBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
-  connGreen: { backgroundColor: COLORS.successBg },
-  connRed: { backgroundColor: COLORS.errorBg },
-  connText: { fontSize: 10, fontWeight: '700' },
-  chatList: { flex: 1 },
-  chatListContent: { paddingHorizontal: 12, paddingVertical: 8 },
-  systemMsg: { alignItems: 'center', paddingVertical: 4 },
-  systemText: { fontSize: 11, color: COLORS.textMuted, fontStyle: 'italic' },
-  chatMsg: { backgroundColor: COLORS.white, borderRadius: 10, padding: 10, marginBottom: 6, maxWidth: '90%', alignSelf: 'flex-start' },
-  chatMsgMe: { alignSelf: 'flex-end', backgroundColor: '#EFF6FF' },
-  msgHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 },
-  msgName: { fontSize: 11, fontWeight: '700', color: COLORS.primary },
-  teacherName: { color: COLORS.success },
-  teacherBadge: { backgroundColor: COLORS.successBg, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 },
-  teacherBadgeText: { fontSize: 8, fontWeight: '800', color: COLORS.success },
-  msgTime: { fontSize: 9, color: COLORS.textMuted },
-  msgText: { fontSize: 13, color: COLORS.textPrimary, lineHeight: 18 },
-  emptyChat: { alignItems: 'center', paddingTop: 40, gap: 8 },
-  emptyChatText: { fontSize: 13, color: COLORS.textMuted },
-  chatInputRow: { flexDirection: 'row', padding: 10, gap: 8, backgroundColor: COLORS.white, borderTopWidth: 1, borderTopColor: COLORS.border },
-  chatInput: { flex: 1, fontSize: 14, backgroundColor: COLORS.bgSubtle, borderRadius: 20, paddingHorizontal: 16, height: 40, color: COLORS.textPrimary, borderWidth: 1, borderColor: COLORS.border },
-  sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center' },
-  chatDisabled: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.bgSubtle, gap: 8 },
-  chatDisabledTitle: { fontSize: 16, fontWeight: '700', color: COLORS.textSecondary },
-  chatDisabledText: { fontSize: 13, color: COLORS.textMuted },
+const st = StyleSheet.create({
+  safe:{flex:1,backgroundColor:COLORS.white},
+  header:{flexDirection:'row',alignItems:'center',paddingHorizontal:16,paddingVertical:10,borderBottomWidth:1,borderBottomColor:COLORS.border},
+  headerTitle:{fontSize:15,fontWeight:'700',color:COLORS.textPrimary},headerSub:{fontSize:11,color:COLORS.textMuted,marginTop:1},
+  liveInd:{flexDirection:'row',alignItems:'center',gap:4,backgroundColor:COLORS.bgSubtle,paddingHorizontal:8,paddingVertical:4,borderRadius:12},
+  liveDot:{width:6,height:6,borderRadius:3,backgroundColor:COLORS.textMuted},liveDotOn:{backgroundColor:COLORS.live},
+  liveTxt:{fontSize:10,fontWeight:'600',color:COLORS.textSecondary},
+  videoBox:{width:'100%',height:VIDEO_H,backgroundColor:'#000'},
+  controls:{flexDirection:'row',alignItems:'center',paddingHorizontal:16,paddingVertical:8,borderBottomWidth:1,borderBottomColor:COLORS.border,flexWrap:'wrap',gap:6},
+  speedBtn:{flexDirection:'row',alignItems:'center',gap:4,backgroundColor:COLORS.bgSubtle,paddingHorizontal:10,paddingVertical:6,borderRadius:8,borderWidth:1,borderColor:COLORS.border},
+  speedTxt:{fontSize:12,fontWeight:'700',color:COLORS.primary},
+  speedOpts:{flexDirection:'row',gap:4,flexWrap:'wrap'},
+  speedChip:{paddingHorizontal:10,paddingVertical:5,borderRadius:6,backgroundColor:COLORS.bgSubtle,borderWidth:1,borderColor:COLORS.border},
+  speedChipAct:{backgroundColor:COLORS.primary,borderColor:COLORS.primary},speedChipTxt:{fontSize:11,fontWeight:'600',color:COLORS.textSecondary},
+  resumeBadge:{flexDirection:'row',alignItems:'center',gap:4,backgroundColor:COLORS.successBg,paddingHorizontal:8,paddingVertical:4,borderRadius:8},
+  resumeTxt:{fontSize:10,fontWeight:'600',color:COLORS.success},
+  chatBox:{flex:1,backgroundColor:COLORS.bgSubtle},
+  chatHead:{flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:16,paddingVertical:10,backgroundColor:COLORS.white,borderBottomWidth:1,borderBottomColor:COLORS.border},
+  chatTitle:{fontSize:14,fontWeight:'700',color:COLORS.textPrimary,flex:1},
+  connBadge:{paddingHorizontal:8,paddingVertical:2,borderRadius:8},connG:{backgroundColor:COLORS.successBg},connR:{backgroundColor:COLORS.errorBg},
+  connTxt:{fontSize:10,fontWeight:'700'},
+  chatList:{flex:1},chatListC:{paddingHorizontal:12,paddingVertical:8},
+  sysMsg:{alignItems:'center',paddingVertical:4},sysTxt:{fontSize:11,color:COLORS.textMuted,fontStyle:'italic'},
+  chatMsg:{backgroundColor:COLORS.white,borderRadius:10,padding:10,marginBottom:6,maxWidth:'90%',alignSelf:'flex-start'},
+  chatMsgMe:{alignSelf:'flex-end',backgroundColor:'#EFF6FF'},
+  msgHead:{flexDirection:'row',alignItems:'center',gap:6,marginBottom:3},
+  msgName:{fontSize:11,fontWeight:'700',color:COLORS.primary},teacherName:{color:COLORS.success},
+  teacherBadge:{backgroundColor:COLORS.successBg,paddingHorizontal:4,paddingVertical:1,borderRadius:3},teacherBadgeTxt:{fontSize:8,fontWeight:'800',color:COLORS.success},
+  msgTime:{fontSize:9,color:COLORS.textMuted},msgTxt:{fontSize:13,color:COLORS.textPrimary,lineHeight:18},
+  emptyChat:{alignItems:'center',paddingTop:40},emptyChatTxt:{fontSize:13,color:COLORS.textMuted},
+  chatInputRow:{flexDirection:'row',padding:10,gap:8,backgroundColor:COLORS.white,borderTopWidth:1,borderTopColor:COLORS.border},
+  chatInput:{flex:1,fontSize:14,backgroundColor:COLORS.bgSubtle,borderRadius:20,paddingHorizontal:16,height:40,color:COLORS.textPrimary,borderWidth:1,borderColor:COLORS.border},
+  sendBtn:{width:40,height:40,borderRadius:20,backgroundColor:COLORS.primary,alignItems:'center',justifyContent:'center'},
+  chatOff:{flex:1,alignItems:'center',justifyContent:'center',backgroundColor:COLORS.bgSubtle,gap:8},chatOffTitle:{fontSize:16,fontWeight:'700',color:COLORS.textSecondary},
 });

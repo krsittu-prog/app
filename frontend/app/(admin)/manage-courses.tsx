@@ -59,6 +59,32 @@ export default function ManageCoursesScreen() {
     setAddingVideo(true);
     try { await apiCall(`/api/courses/${contentCourse.id}/videos`, { method: 'POST', body: JSON.stringify({ title: videoForm.title, url: videoForm.url, duration: parseInt(videoForm.duration)||0, order: 0, section_id: activeSectionId }) }); setVideoForm({ title: '', url: '', duration: '0' }); await fetchSections(contentCourse.id); } catch {} setAddingVideo(false);
   }
+
+  async function uploadVideoFile() {
+    if (!activeSectionId) { Alert.alert('Error', 'Select a section first'); return; }
+    try {
+      const r = await DocumentPicker.getDocumentAsync({ type: 'video/*', copyToCacheDirectory: true });
+      if (r.canceled || !r.assets?.length) return;
+      setAddingVideo(true);
+      const f = r.assets[0];
+      const formData = new FormData();
+      formData.append('file', { uri: f.uri, name: f.name || 'video.mp4', type: f.mimeType || 'video/mp4' } as any);
+      formData.append('title', f.name || 'Uploaded Video');
+      formData.append('section_id', activeSectionId);
+      formData.append('course_id', contentCourse.id);
+      const token = await (await import('@react-native-async-storage/async-storage')).default.getItem('token');
+      const BURL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
+      const resp = await fetch(`${BURL}/api/upload/video`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData,
+      });
+      if (!resp.ok) throw new Error('Upload failed');
+      await fetchSections(contentCourse.id);
+      Alert.alert('Success', 'Video uploaded!');
+    } catch (e: any) { Alert.alert('Error', e.message || 'Upload failed'); }
+    finally { setAddingVideo(false); }
+  }
   async function deleteVideo(vId: string) { try { await apiCall(`/api/videos/${vId}`, { method: 'DELETE' }); await fetchSections(contentCourse.id); } catch {} }
   async function pickPdf() {
     if (!pdfTitle.trim() || !activeSectionId) { Alert.alert('Error', 'Enter PDF title first'); return; }
@@ -166,7 +192,7 @@ export default function ManageCoursesScreen() {
 
                     {/* Add Video */}
                     <View style={st.addBox}>
-                      <Text style={st.addLabel}>Add Video</Text>
+                      <Text style={st.addLabel}>Add Video (URL)</Text>
                       <TextInput testID="video-title-input" style={st.smInput} value={videoForm.title} onChangeText={v=>setVideoForm(p=>({...p,title:v}))} placeholder="Video title" placeholderTextColor={COLORS.textMuted} />
                       <TextInput testID="video-url-input" style={st.smInput} value={videoForm.url} onChangeText={v=>setVideoForm(p=>({...p,url:v}))} placeholder="YouTube or video URL" placeholderTextColor={COLORS.textMuted} />
                       <View style={{flexDirection:'row',gap:6}}>
@@ -175,6 +201,14 @@ export default function ManageCoursesScreen() {
                           {addingVideo?<ActivityIndicator color="#fff" size="small"/>:<><Ionicons name="add" size={14} color="#fff"/><Text style={st.miniBtnTxt}>Add</Text></>}
                         </TouchableOpacity>
                       </View>
+                    </View>
+
+                    {/* Upload Video File */}
+                    <View style={st.addBox}>
+                      <Text style={st.addLabel}>Upload Video File</Text>
+                      <TouchableOpacity style={[st.uploadVidBtn,addingVideo&&{opacity:.7}]} onPress={uploadVideoFile} disabled={addingVideo} testID="upload-video-btn">
+                        {addingVideo?<ActivityIndicator color="#fff" size="small"/>:<><Ionicons name="videocam" size={14} color="#fff"/><Text style={st.uploadVidBtnTxt}>Choose & Upload Video</Text></>}
+                      </TouchableOpacity>
                     </View>
 
                     {/* Upload PDF */}
@@ -249,5 +283,7 @@ const st = StyleSheet.create({
   miniBtnTxt:{color:'#fff',fontSize:11,fontWeight:'700'},
   pdfBtn:{flexDirection:'row',alignItems:'center',justifyContent:'center',gap:6,backgroundColor:COLORS.accent,paddingVertical:10,borderRadius:8},
   pdfBtnTxt:{color:'#fff',fontSize:13,fontWeight:'700'},
+  uploadVidBtn:{flexDirection:'row',alignItems:'center',justifyContent:'center',gap:6,backgroundColor:COLORS.primary,paddingVertical:10,borderRadius:8},
+  uploadVidBtnTxt:{color:'#fff',fontSize:13,fontWeight:'700'},
   empty:{alignItems:'center',paddingVertical:32,gap:8},emptyTxt:{fontSize:16,fontWeight:'600',color:COLORS.textMuted},emptyHint:{fontSize:12,color:COLORS.textMuted,textAlign:'center'},
 });

@@ -4,10 +4,11 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-from fastapi import FastAPI, APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import FileResponse, Response
 from motor.motor_asyncio import AsyncIOMotorClient
-import os, logging, bcrypt, secrets, httpx, smtplib, json, uuid, razorpay
+import os, logging, bcrypt, secrets, httpx, smtplib, json, uuid, razorpay, shutil
 import jwt as pyjwt
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -647,10 +648,70 @@ async def download_material(material_id: str):
     material = await db.course_materials.find_one({"id": material_id}, {"_id": 0})
     if not material:
         raise HTTPException(status_code=404, detail="Material not found")
-    from starlette.responses import Response
     import base64
     pdf_bytes = base64.b64decode(material["file_data"])
-    return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{material.get("filename", "material.pdf")}"'})
+    return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{material.get("filename", "material.pdf")}"'})
+
+@api_router.get("/materials/{material_id}/view")
+async def view_material(material_id: str):
+    """Serve PDF in an HTML viewer page"""
+    material = await db.course_materials.find_one({"id": material_id}, {"_id": 0})
+    if not material:
+        raise HTTPException(status_code=404, detail="Material not found")
+    import base64
+    b64data = material["file_data"]
+    html = f"""<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{material.get('title','PDF')}</title>
+<style>*{{margin:0;padding:0}}body{{background:#f1f5f9}}iframe,embed{{width:100%;height:100vh;border:none}}</style>
+</head><body>
+<embed src="data:application/pdf;base64,{b64data}" type="application/pdf" width="100%" height="100%">
+</body></html>"""
+    return Response(content=html, media_type="text/html")
+
+# ============ VIDEO FILE UPLOAD ============
+UPLOAD_DIR = Path(__file__).parent / "uploads" / "videos"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+@api_router.post("/upload/video")
+async def upload_video_file(request: Request, file: UploadFile = File(...), title: str = Form(""), section_id: str = Form(""), course_id: str = Form("")):
+    await require_admin(request)
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+    file_id = str(uuid.uuid4())
+    ext = file.filename.rsplit('.', 1)[-1] if '.' in file.filename else 'mp4'
+    save_name = f"{file_id}.{ext}"
+    save_path = UPLOAD_DIR / save_name
+    with open(save_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+    file_size = len(content)
+    video_url = f"/api/uploads/videos/{save_name}"
+    video = {
+        "id": file_id,
+        "course_id": course_id,
+        "section_id": section_id,
+        "title": title or file.filename,
+        "url": video_url,
+        "duration": 0,
+        "order": 0,
+        "live_count": 0,
+        "total_views": 0,
+        "live_count_override": None,
+        "total_views_override": None,
+        "file_size": file_size,
+        "is_uploaded": True,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.videos.insert_one(video)
+    video.pop("_id", None)
+    return video
+
+@api_router.get("/uploads/videos/{filename}")
+async def serve_video(filename: str):
+    file_path = UPLOAD_DIR / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Video not found")
+    return FileResponse(str(file_path), media_type="video/mp4")
 
 @api_router.delete("/materials/{material_id}")
 async def delete_material(material_id: str, request: Request):

@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { WebView } from 'react-native-webview';
+import * as WebBrowser from 'expo-web-browser';
 import { apiCall, formatPrice, getCourseTypeBadge } from '../../src/api';
 import { useAuth } from '../../src/context/AuthContext';
 import { COLORS } from '../../src/theme';
@@ -65,8 +66,8 @@ export default function CourseDetailScreen() {
   }
 
   function downloadMaterial(material: any) {
-    const url = `${BACKEND_URL}/api/materials/${material.id}/download`;
-    Linking.openURL(url).catch(() => Alert.alert('Error', 'Cannot open file'));
+    const url = `${BACKEND_URL}/api/materials/${material.id}/view`;
+    WebBrowser.openBrowserAsync(url).catch(() => Alert.alert('Error', 'Cannot open file'));
   }
 
   async function handleEnroll() {

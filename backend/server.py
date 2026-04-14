@@ -495,6 +495,8 @@ async def get_course(course_id: str):
         if v.get("total_views_override") is not None:
             v["total_views"] = v["total_views_override"]
     course["videos"] = videos
+    materials = await db.course_materials.find({"course_id": course_id}, {"_id": 0, "file_data": 0}).sort("created_at", -1).to_list(100)
+    course["materials"] = materials
     return course
 
 @api_router.post("/courses")
@@ -544,6 +546,56 @@ async def add_video(course_id: str, data: VideoModel, request: Request):
     await db.videos.insert_one(video)
     video.pop("_id", None)
     return video
+
+@api_router.delete("/videos/{video_id}")
+async def delete_video(video_id: str, request: Request):
+    await require_admin(request)
+    await db.videos.delete_one({"id": video_id})
+    return {"success": True}
+
+# ============ COURSE MATERIALS (PDF) ============
+class MaterialUploadModel(BaseModel):
+    title: str
+    file_data: str
+    filename: str
+
+@api_router.post("/courses/{course_id}/materials")
+async def upload_material(course_id: str, data: MaterialUploadModel, request: Request):
+    await require_admin(request)
+    material = {
+        "id": str(uuid.uuid4()),
+        "course_id": course_id,
+        "title": data.title,
+        "filename": data.filename,
+        "file_data": data.file_data,
+        "file_size": len(data.file_data) * 3 // 4,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.course_materials.insert_one(material)
+    material.pop("_id", None)
+    material.pop("file_data", None)
+    return material
+
+@api_router.get("/courses/{course_id}/materials")
+async def list_materials(course_id: str):
+    materials = await db.course_materials.find({"course_id": course_id}, {"_id": 0, "file_data": 0}).sort("created_at", -1).to_list(100)
+    return {"materials": materials}
+
+@api_router.get("/materials/{material_id}/download")
+async def download_material(material_id: str):
+    material = await db.course_materials.find_one({"id": material_id}, {"_id": 0})
+    if not material:
+        raise HTTPException(status_code=404, detail="Material not found")
+    from starlette.responses import Response
+    import base64
+    pdf_bytes = base64.b64decode(material["file_data"])
+    return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{material.get("filename", "material.pdf")}"'})
+
+@api_router.delete("/materials/{material_id}")
+async def delete_material(material_id: str, request: Request):
+    await require_admin(request)
+    await db.course_materials.delete_one({"id": material_id})
+    return {"success": True}
 
 @api_router.put("/videos/{video_id}/progress")
 async def update_video_progress(video_id: str, data: VideoProgressModel, request: Request):

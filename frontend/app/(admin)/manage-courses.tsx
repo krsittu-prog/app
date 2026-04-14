@@ -28,7 +28,7 @@ export default function ManageCoursesScreen() {
 
   function openNew() {
     setEditingCourse(null);
-    setForm({ title: '', description: '', category: 'Prelims', type: 'live', price: '0', instructor: '', features: '' });
+    setForm({ title: '', description: '', category: 'Prelims', type: 'live', price: '0', instructor: '', features: '', chat_enabled: true });
     setShowModal(true);
   }
 
@@ -42,6 +42,7 @@ export default function ManageCoursesScreen() {
       price: String(course.price),
       instructor: course.instructor || '',
       features: (course.features || []).join(', '),
+      chat_enabled: course.chat_enabled !== false,
     });
     setShowModal(true);
   }
@@ -57,6 +58,7 @@ export default function ManageCoursesScreen() {
       price: parseFloat(form.price) || 0,
       instructor: form.instructor,
       features: form.features.split(',').map(f => f.trim()).filter(Boolean),
+      chat_enabled: form.chat_enabled,
     };
     try {
       if (editingCourse) {
@@ -165,6 +167,21 @@ export default function ManageCoursesScreen() {
               <Text style={styles.label}>Features (comma separated)</Text>
               <TextInput testID="course-features-input" style={styles.input} value={form.features} onChangeText={v => setForm(p => ({ ...p, features: v }))} placeholder="Feature 1, Feature 2..." placeholderTextColor={COLORS.textMuted} />
 
+              {/* Chat Toggle */}
+              <View style={styles.chatToggleRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>Live Chat</Text>
+                  <Text style={{ fontSize: 11, color: COLORS.textMuted }}>Allow students to chat during videos</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.toggleBtn, form.chat_enabled ? styles.toggleOn : styles.toggleOff]}
+                  onPress={() => setForm(p => ({ ...p, chat_enabled: !p.chat_enabled }))}
+                  testID="chat-toggle"
+                >
+                  <View style={[styles.toggleKnob, form.chat_enabled ? styles.knobOn : styles.knobOff]} />
+                </TouchableOpacity>
+              </View>
+
               <TouchableOpacity style={[styles.saveBtn, saving && { opacity: 0.7 }]} onPress={saveCourse} disabled={saving} testID="save-course-btn">
                 {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>{editingCourse ? 'Update Course' : 'Create Course'}</Text>}
               </TouchableOpacity>
@@ -204,4 +221,11 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 12, fontWeight: '600', color: COLORS.textSecondary },
   saveBtn: { backgroundColor: COLORS.primary, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 20, marginBottom: 20 },
   saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  chatToggleRow: { flexDirection: 'row', alignItems: 'center', marginTop: 16, gap: 12 },
+  toggleBtn: { width: 50, height: 28, borderRadius: 14, padding: 2, justifyContent: 'center' },
+  toggleOn: { backgroundColor: COLORS.primary },
+  toggleOff: { backgroundColor: COLORS.border },
+  toggleKnob: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#fff' },
+  knobOn: { alignSelf: 'flex-end' },
+  knobOff: { alignSelf: 'flex-start' },
 });

@@ -17,6 +17,7 @@ function openVideo(router: any, course: any, video: any) {
       videoUrl: video.url,
       videoTitle: video.title,
       courseName: course.title,
+      chatEnabled: course.chat_enabled !== false ? 'true' : 'false',
     },
   });
 }

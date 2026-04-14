@@ -15,16 +15,19 @@ export default function HomeScreen() {
   const router = useRouter();
   const [courses, setCourses] = useState<any[]>([]);
   const [cms, setCms] = useState<any>({});
+  const [resumeVideos, setResumeVideos] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
-      const [courseRes, cmsRes] = await Promise.all([
+      const [courseRes, cmsRes, resumeRes] = await Promise.all([
         apiCall('/api/courses'),
         apiCall('/api/cms'),
+        apiCall('/api/videos/resume').catch(() => ({ videos: [] })),
       ]);
       setCourses(courseRes.courses || []);
       setCms(cmsRes.content || {});
+      setResumeVideos(resumeRes.videos || []);
     } catch (e) { /* */ }
   }, []);
 
@@ -62,6 +65,35 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Resume Learning */}
+        {resumeVideos.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>▶️ Resume Learning</Text>
+            </View>
+            {resumeVideos.map((rv: any) => (
+              <TouchableOpacity
+                key={rv.video_id}
+                style={styles.resumeCard}
+                onPress={() => router.push({ pathname: '/player', params: { courseId: rv.course_id, videoId: rv.video_id, videoUrl: rv.video_url || '', videoTitle: rv.video_title || 'Video', courseName: rv.course_title || '', chatEnabled: 'true' } })}
+                testID={`resume-${rv.video_id}`}
+              >
+                <View style={styles.resumeIcon}>
+                  <Ionicons name="play" size={20} color={COLORS.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.resumeTitle} numberOfLines={1}>{rv.video_title || 'Continue Video'}</Text>
+                  <Text style={styles.resumeSub}>{rv.course_title || ''} • {Math.floor(rv.position / 60)}:{String(Math.floor(rv.position % 60)).padStart(2, '0')} watched</Text>
+                  <View style={styles.progressBar}>
+                    <View style={[styles.progressFill, { width: `${Math.min((rv.position / (rv.duration || 1)) * 100, 100)}%` }]} />
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={COLORS.textMuted} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {/* Announcement */}
         {cms.banner_text ? (
@@ -201,4 +233,10 @@ const styles = StyleSheet.create({
   freeIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: COLORS.freeBg, alignItems: 'center', justifyContent: 'center' },
   freeTitle: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary },
   freeSub: { fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
+  resumeCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.white, marginHorizontal: 20, padding: 14, borderRadius: 12, marginBottom: 8, gap: 12, borderLeftWidth: 3, borderLeftColor: COLORS.primary },
+  resumeIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center' },
+  resumeTitle: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary },
+  resumeSub: { fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
+  progressBar: { height: 3, backgroundColor: COLORS.border, borderRadius: 2, marginTop: 6, width: '100%' },
+  progressFill: { height: 3, backgroundColor: COLORS.primary, borderRadius: 2 },
 });

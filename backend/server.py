@@ -182,6 +182,7 @@ class CourseModel(BaseModel):
     thumbnail: str = ""
     instructor: str = ""
     features: List[str] = []
+    chat_enabled: bool = True
 
 class VideoModel(BaseModel):
     title: str
@@ -366,6 +367,7 @@ async def create_course(data: CourseModel, request: Request):
         "id": str(uuid.uuid4()),
         **data.dict(),
         "students_enrolled": 0,
+        "chat_enabled": data.chat_enabled,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.courses.insert_one(course)
@@ -428,7 +430,25 @@ async def get_resume_videos(request: Request):
     progress = await db.video_progress.find(
         {"user_id": user["id"]}, {"_id": 0}
     ).sort("last_watched", -1).to_list(5)
+    # Enrich with video and course info
+    for p in progress:
+        video = await db.videos.find_one({"id": p.get("video_id")}, {"_id": 0})
+        if video:
+            p["video_title"] = video.get("title", "")
+            p["video_url"] = video.get("url", "")
+            p["course_id"] = video.get("course_id", "")
+            course = await db.courses.find_one({"id": video.get("course_id")}, {"_id": 0})
+            if course:
+                p["course_title"] = course.get("title", "")
     return {"videos": progress}
+
+@api_router.get("/videos/{video_id}/progress")
+async def get_video_progress(video_id: str, request: Request):
+    user = await get_current_user(request)
+    progress = await db.video_progress.find_one(
+        {"user_id": user["id"], "video_id": video_id}, {"_id": 0}
+    )
+    return {"progress": progress}
 
 @api_router.put("/videos/{video_id}/metrics")
 async def override_video_metrics(video_id: str, data: VideoMetricsModel, request: Request):

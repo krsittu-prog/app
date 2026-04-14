@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Dimensions, Modal, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiCall, formatPrice, getCourseTypeBadge } from '../../src/api';
+import { useAuth } from '../../src/context/AuthContext';
 import { COLORS } from '../../src/theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -25,10 +26,13 @@ function openVideo(router: any, course: any, video: any) {
 export default function CourseDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { user } = useAuth();
   const [course, setCourse] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(false);
   const [enrolled, setEnrolled] = useState(false);
+  const [showPayment, setShowPayment] = useState(false);
+  const [paymentData, setPaymentData] = useState<any>(null);
 
   useEffect(() => { fetchCourse(); checkEnrollment(); }, [id]);
 
@@ -51,35 +55,113 @@ export default function CourseDetailScreen() {
   async function handleEnroll() {
     if (!course) return;
     if (course.price === 0) {
-      // Free course - direct enroll
       setEnrolling(true);
       try {
+        // Free course - direct enroll via backend
         await apiCall('/api/payments/verify', {
           method: 'POST',
           body: JSON.stringify({ order_id: 'free', payment_id: 'free', signature: 'free', course_id: course.id }),
         });
         setEnrolled(true);
       } catch (e) {
-        // For free courses, just mark as enrolled directly
         setEnrolled(true);
       }
       setEnrolling(false);
       return;
     }
-    // Paid course - create Razorpay order
+    // Paid course - create Razorpay order then open checkout
     setEnrolling(true);
     try {
       const orderData = await apiCall('/api/payments/create-order', {
         method: 'POST',
         body: JSON.stringify({ course_id: course.id, amount: course.price * 100 }),
       });
-      // In a real app, this would open Razorpay checkout
-      // For now, show order created message
-      alert(`Razorpay Order Created!\n\nOrder ID: ${orderData.order_id}\nAmount: ₹${course.price}\n\nIn production, this will open Razorpay payment gateway.`);
+      setPaymentData(orderData);
+      setShowPayment(true);
     } catch (e: any) {
-      alert(e.message || 'Payment failed');
+      alert(e.message || 'Failed to create order');
     }
     setEnrolling(false);
+  }
+
+  async function handlePaymentSuccess(paymentId: string, signature: string) {
+    setShowPayment(false);
+    setEnrolling(true);
+    try {
+      await apiCall('/api/payments/verify', {
+        method: 'POST',
+        body: JSON.stringify({
+          order_id: paymentData.order_id,
+          payment_id: paymentId,
+          signature: signature,
+          course_id: course.id,
+        }),
+      });
+      setEnrolled(true);
+      alert('Payment successful! You are now enrolled.');
+    } catch (e: any) {
+      alert(e.message || 'Payment verification failed');
+    }
+    setEnrolling(false);
+  }
+
+  function handlePaymentDismiss() {
+    setShowPayment(false);
+  }
+
+  function getRazorpayHtml() {
+    if (!paymentData || !course) return '';
+    return `<!DOCTYPE html>
+<html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{margin:0;font-family:-apple-system,sans-serif;background:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh}
+.card{background:#fff;border-radius:16px;padding:32px;max-width:400px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,.1);text-align:center}
+h2{color:#0f172a;font-size:20px;margin:0 0 4px}
+.price{font-size:32px;font-weight:800;color:#2563eb;margin:16px 0}
+.sub{color:#64748b;font-size:14px;margin-bottom:24px}
+.btn{background:#2563eb;color:#fff;border:none;padding:14px 32px;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;width:100%}
+.btn:hover{background:#1d4ed8}
+.secure{color:#64748b;font-size:11px;margin-top:16px}
+.cancel{color:#64748b;font-size:13px;margin-top:12px;cursor:pointer;text-decoration:underline;border:none;background:none}
+</style>
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head><body>
+<div class="card">
+<h2>${course.title}</h2>
+<div class="price">₹${course.price.toLocaleString('en-IN')}</div>
+<div class="sub">Secure payment via Razorpay</div>
+<button class="btn" id="payBtn" onclick="openRazorpay()">Pay Now</button>
+<div class="secure">🔒 100% Secure Payment</div>
+<button class="cancel" onclick="cancelPayment()">Cancel</button>
+</div>
+<script>
+function openRazorpay(){
+  var options={
+    key:'${paymentData.key_id}',
+    amount:${paymentData.amount},
+    currency:'INR',
+    name:'GS Pinnacle IAS',
+    description:'${course.title}',
+    order_id:'${paymentData.order_id}',
+    prefill:{name:'${user?.name||""}',email:'${user?.email||""}',contact:'${user?.phone||""}'},
+    theme:{color:'#2563EB'},
+    handler:function(response){
+      window.ReactNativeWebView?window.ReactNativeWebView.postMessage(JSON.stringify({type:'success',payment_id:response.razorpay_payment_id,signature:response.razorpay_signature})):window.parent.postMessage(JSON.stringify({type:'success',payment_id:response.razorpay_payment_id,signature:response.razorpay_signature}),'*');
+    },
+    modal:{ondismiss:function(){
+      window.ReactNativeWebView?window.ReactNativeWebView.postMessage(JSON.stringify({type:'dismissed'})):window.parent.postMessage(JSON.stringify({type:'dismissed'}),'*');
+    }}
+  };
+  var rzp=new Razorpay(options);
+  rzp.on('payment.failed',function(r){
+    window.ReactNativeWebView?window.ReactNativeWebView.postMessage(JSON.stringify({type:'failed',error:r.error.description})):window.parent.postMessage(JSON.stringify({type:'failed',error:r.error.description}),'*');
+  });
+  rzp.open();
+}
+function cancelPayment(){
+  window.ReactNativeWebView?window.ReactNativeWebView.postMessage(JSON.stringify({type:'dismissed'})):window.parent.postMessage(JSON.stringify({type:'dismissed'}),'*');
+}
+</script></body></html>`;
   }
 
   if (loading) return <SafeAreaView style={styles.safe}><ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} /></SafeAreaView>;
@@ -179,6 +261,56 @@ export default function CourseDetailScreen() {
           </TouchableOpacity>
         )}
       </View>
+
+      {/* Razorpay Payment Modal */}
+      {showPayment && paymentData && (
+        <Modal visible={showPayment} animationType="slide" transparent testID="payment-modal">
+          <View style={styles.paymentOverlay}>
+            <View style={styles.paymentContainer}>
+              <View style={styles.paymentHeader}>
+                <Text style={styles.paymentTitle}>Complete Payment</Text>
+                <TouchableOpacity onPress={handlePaymentDismiss} testID="close-payment-modal">
+                  <Ionicons name="close" size={24} color={COLORS.textPrimary} />
+                </TouchableOpacity>
+              </View>
+              {Platform.OS === 'web' ? (
+                <iframe
+                  srcDoc={getRazorpayHtml()}
+                  style={{ width: '100%', height: 500, border: 'none', borderRadius: 12 } as any}
+                  ref={(ref: any) => {
+                    if (ref) {
+                      const handler = (event: MessageEvent) => {
+                        try {
+                          const data = JSON.parse(event.data);
+                          if (data.type === 'success') handlePaymentSuccess(data.payment_id, data.signature);
+                          else if (data.type === 'dismissed' || data.type === 'failed') handlePaymentDismiss();
+                        } catch (e) { /* */ }
+                      };
+                      window.addEventListener('message', handler);
+                    }
+                  }}
+                />
+              ) : (
+                (() => { const { WebView } = require('react-native-webview'); return (
+                  <WebView
+                    source={{ html: getRazorpayHtml() }}
+                    style={{ flex: 1, minHeight: 500 }}
+                    javaScriptEnabled
+                    onMessage={(event: any) => {
+                      try {
+                        const data = JSON.parse(event.nativeEvent.data);
+                        if (data.type === 'success') handlePaymentSuccess(data.payment_id, data.signature);
+                        else if (data.type === 'dismissed' || data.type === 'failed') handlePaymentDismiss();
+                      } catch (e) { /* */ }
+                    }}
+                    testID="razorpay-webview"
+                  />
+                ); })()
+              )}
+            </View>
+          </View>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }

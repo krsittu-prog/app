@@ -1,0 +1,146 @@
+{
+  "theme": "LIGHT",
+  "archetype": "Archetype 4 (Swiss & High-Contrast) modified for EdTech with Deep Blue & White",
+  "identity": {
+    "domain": "EdTech / IAS Civil Services Institute",
+    "emotion": "Professional, authoritative, focused, clear, trustworthy, and modern.",
+    "visual_mood": "Minimalist blue-and-white theme. High contrast, generous negative space, crisp typography, avoiding clutter to maximize focus for students."
+  },
+  "colors": {
+    "backgrounds": {
+      "default": "bg-white",
+      "subtle": "bg-slate-50",
+      "muted": "bg-slate-100",
+      "dark_section": "bg-slate-900"
+    },
+    "text": {
+      "primary": "text-slate-900",
+      "secondary": "text-slate-600",
+      "muted": "text-slate-500",
+      "inverse": "text-white"
+    },
+    "brand": {
+      "primary": "bg-blue-600",
+      "primary_hover": "bg-blue-700",
+      "primary_text": "text-blue-600",
+      "secondary": "bg-sky-500",
+      "accent": "bg-amber-500"
+    },
+    "status": {
+      "success": "text-emerald-600 bg-emerald-50",
+      "warning": "text-amber-600 bg-amber-50",
+      "error": "text-red-600 bg-red-50",
+      "info": "text-blue-600 bg-blue-50"
+    },
+    "borders": {
+      "default": "border-slate-200",
+      "focus": "ring-2 ring-blue-600 ring-offset-2"
+    }
+  },
+  "typography": {
+    "fonts": {
+      "heading": "Outfit, sans-serif",
+      "body": "IBM Plex Sans, sans-serif"
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-slate-900",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl font-semibold tracking-tight text-slate-900",
+      "h3": "text-xl sm:text-2xl font-semibold text-slate-800",
+      "h4": "text-lg sm:text-xl font-medium text-slate-800",
+      "body": "text-base leading-relaxed text-slate-600",
+      "small": "text-sm text-slate-500",
+      "overline": "text-xs font-bold uppercase tracking-[0.2em] text-blue-600"
+    }
+  },
+  "spacing_and_layout": {
+    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "section_padding": "py-16 sm:py-24 lg:py-32",
+    "card_padding": "p-6 sm:p-8",
+    "grids": {
+      "student_dashboard": "grid grid-cols-1 md:grid-cols-8 lg:grid-cols-12 gap-6 sm:gap-8",
+      "admin_dashboard": "grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6",
+      "course_grid": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8"
+    }
+  },
+  "surfaces": {
+    "cards": {
+      "default": "bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-200",
+      "flat": "bg-slate-50 border border-slate-200 rounded-xl",
+      "active": "bg-white border-2 border-blue-600 rounded-xl shadow-sm"
+    },
+    "glassmorphism": {
+      "header": "bg-white/80 backdrop-blur-xl border-b border-slate-200/50 sticky top-0 z-50",
+      "dark_overlay": "bg-slate-900/60 backdrop-blur-md"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "inline-flex items-center justify-center rounded-lg bg-blue-600 px-6 py-3 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors",
+      "secondary": "inline-flex items-center justify-center rounded-lg bg-white px-6 py-3 text-sm font-medium text-slate-700 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-colors",
+      "ghost": "inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+    },
+    "inputs": {
+      "default": "block w-full rounded-lg border-0 py-2.5 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6"
+    },
+    "badges": {
+      "live": "inline-flex items-center rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-600/10",
+      "recorded": "inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10"
+    }
+  },
+  "animation": {
+    "transitions": "transition-all duration-200 ease-in-out",
+    "hover_lift": "hover:-translate-y-1 hover:shadow-lg transition-transform duration-300",
+    "fade_in": "animate-in fade-in duration-500",
+    "slide_up": "animate-in slide-in-from-bottom-4 duration-500"
+  },
+  "icons": {
+    "library": "lucide-react",
+    "sizes": {
+      "small": "w-4 h-4",
+      "default": "w-5 h-5",
+      "large": "w-8 h-8",
+      "hero": "w-12 h-12"
+    }
+  },
+  "media_urls": {
+    "logo": {
+      "url": "https://customer-assets.emergentagent.com/job_gs-pinnacle-admin/artifacts/yrbace0q_b08b6e29-6d29-456a-9491-bdb81f3a9761.png",
+      "description": "GS Pinnacle IAS Institute Logo",
+      "category": "branding"
+    },
+    "hero_background": {
+      "url": "https://images.unsplash.com/photo-1675664532731-c8caede9ef6b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxNzV8MHwxfHNlYXJjaHw0fHxpbmRpYW4lMjBzdHVkZW50JTIwc3R1ZHlpbmclMjBvbmxpbmV8ZW58MHx8fHwxNzc2MTI4MTM1fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Student studying online, ideal for hero section or splash screen background",
+      "category": "hero"
+    },
+    "course_thumbnail_1": {
+      "url": "https://images.unsplash.com/photo-1660795307991-f9d5254a139c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwyfHxpYXMlMjBwcmVwYXJhdGlvbiUyMGNpdmlsJTIwc2VydmljZXMlMjBleGFtfGVufDB8fHx8MTc3NjEyODEzNXww&ixlib=rb-4.1.0&q=85",
+      "description": "Man writing, good for 'Answer Sheet Evaluation' or 'Mains Prep'",
+      "category": "course_thumbnail"
+    },
+    "course_thumbnail_2": {
+      "url": "https://images.unsplash.com/photo-1704787266043-0c33f9b0480d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHw0fHxpYXMlMjBwcmVwYXJhdGlvbiUyMGNpdmlsJTIwc2VydmljZXMlMjBleGFtfGVufDB8fHx8MTc3NjEyODEzNXww&ixlib=rb-4.1.0&q=85",
+      "description": "Close up of book, good for 'Study Material' or 'Prelims Prep'",
+      "category": "course_thumbnail"
+    },
+    "course_thumbnail_3": {
+      "url": "https://images.unsplash.com/photo-1773499951138-8d52c966bedf?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHwzfHxtb2Rlcm4lMjBjbGFzc3Jvb20lMjBsZWN0dXJlfGVufDB8fHx8MTc3NjEyODE0NHww&ixlib=rb-4.1.0&q=85",
+      "description": "Modern classroom, good for 'Live Batches' or 'Foundation Course'",
+      "category": "course_thumbnail"
+    },
+    "testimonial_avatar": {
+      "url": "https://images.unsplash.com/photo-1604177091072-b7b677a077f6?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxNzV8MHwxfHNlYXJjaHwxfHxpbmRpYW4lMjBzdHVkZW50JTIwc3R1ZHlpbmclMjBvbmxpbmV8ZW58MHx8fHwxNzc2MTI4MTM1fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Student sitting, good for testimonial or success story avatar",
+      "category": "testimonial"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Import 'Outfit' and 'IBM Plex Sans' from Google Fonts in index.css.",
+    "Implement the Animated Splash Screen as a full-screen entry point with the provided logo fading in over the hero_background image (with a heavy dark blue overlay bg-blue-900/80) and typography for the Sanskrit Shlokas.",
+    "Use Shadcn UI for the multi-step registration (Form, Input, Button) and customize them heavily to fit the clean, high-contrast blue-and-white theme.",
+    "For the Student Home Page, use the 'Bento' grid layout for desktop and stack them on mobile. Prioritize course discovery with clear badges (Live, Recorded, Free).",
+    "Admin Dashboard must follow the 'Control Room' dense grid, with flat cards, and no excessive shadows.",
+    "Do not use fully transparent headers over hero images; always use the glassmorphism header utility.",
+    "All interactive elements MUST have a data-testid attribute in kebab-case."
+  ]
+}

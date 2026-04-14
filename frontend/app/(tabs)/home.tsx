@@ -16,18 +16,21 @@ export default function HomeScreen() {
   const [courses, setCourses] = useState<any[]>([]);
   const [cms, setCms] = useState<any>({});
   const [resumeVideos, setResumeVideos] = useState<any[]>([]);
+  const [liveClasses, setLiveClasses] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
-      const [courseRes, cmsRes, resumeRes] = await Promise.all([
+      const [courseRes, cmsRes, resumeRes, liveRes] = await Promise.all([
         apiCall('/api/courses'),
         apiCall('/api/cms'),
         apiCall('/api/videos/resume').catch(() => ({ videos: [] })),
+        apiCall('/api/live-classes').catch(() => ({ live_classes: [] })),
       ]);
       setCourses(courseRes.courses || []);
       setCms(cmsRes.content || {});
       setResumeVideos(resumeRes.videos || []);
+      setLiveClasses(liveRes.live_classes || []);
     } catch (e) { /* */ }
   }, []);
 
@@ -65,6 +68,31 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Live Classes */}
+        {liveClasses.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>🔴 Upcoming Live Classes</Text>
+            </View>
+            {liveClasses.filter(lc => lc.status !== 'ended').slice(0, 3).map((lc: any) => (
+              <TouchableOpacity key={lc.id} style={styles.liveCard} onPress={() => { if (lc.meeting_url && lc.status === 'live') { const { Linking } = require('react-native'); Linking.openURL(lc.meeting_url); } }} testID={`live-class-${lc.id}`}>
+                <View style={[styles.liveIcon, lc.status === 'live' ? styles.liveNow : styles.liveScheduled]}>
+                  <Ionicons name={lc.status === 'live' ? 'radio' : 'calendar'} size={20} color={lc.status === 'live' ? '#fff' : COLORS.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={styles.liveTitle}>{lc.title}</Text>
+                    {lc.status === 'live' && <View style={styles.liveBadge}><Text style={styles.liveBadgeText}>LIVE</Text></View>}
+                  </View>
+                  <Text style={styles.liveSub}>{lc.course_name}</Text>
+                  <Text style={styles.liveTime}>{new Date(lc.scheduled_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</Text>
+                </View>
+                {lc.status === 'live' && <View style={styles.joinBtn}><Text style={styles.joinBtnText}>Join</Text></View>}
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {/* Resume Learning */}
         {resumeVideos.length > 0 && (
@@ -239,4 +267,15 @@ const styles = StyleSheet.create({
   resumeSub: { fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
   progressBar: { height: 3, backgroundColor: COLORS.border, borderRadius: 2, marginTop: 6, width: '100%' },
   progressFill: { height: 3, backgroundColor: COLORS.primary, borderRadius: 2 },
+  liveCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.white, marginHorizontal: 20, padding: 14, borderRadius: 12, marginBottom: 8, gap: 12, borderLeftWidth: 3, borderLeftColor: COLORS.live },
+  liveIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  liveNow: { backgroundColor: COLORS.live },
+  liveScheduled: { backgroundColor: '#EFF6FF' },
+  liveTitle: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary },
+  liveSub: { fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
+  liveTime: { fontSize: 11, color: COLORS.primary, fontWeight: '600', marginTop: 2 },
+  liveBadge: { backgroundColor: COLORS.live, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 },
+  liveBadgeText: { fontSize: 9, fontWeight: '800', color: '#fff' },
+  joinBtn: { backgroundColor: COLORS.live, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
+  joinBtnText: { color: '#fff', fontWeight: '700', fontSize: 12 },
 });

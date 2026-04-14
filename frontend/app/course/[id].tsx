@@ -23,7 +23,9 @@ export default function CourseDetailScreen() {
   const [enrolled, setEnrolled] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [paymentHtml, setPaymentHtml] = useState('');
+  const [currentOrderId, setCurrentOrderId] = useState('');
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  const [pdfViewer, setPdfViewer] = useState<{ visible: boolean; url: string; title: string }>({ visible: false, url: '', title: '' });
 
   useEffect(() => { fetchAll(); }, [id]);
 
@@ -67,7 +69,7 @@ export default function CourseDetailScreen() {
 
   function downloadMaterial(material: any) {
     const url = `${BACKEND_URL}/api/materials/${material.id}/view`;
-    WebBrowser.openBrowserAsync(url).catch(() => Alert.alert('Error', 'Cannot open file'));
+    setPdfViewer({ visible: true, url, title: material.title || 'PDF' });
   }
 
   async function handleEnroll() {
@@ -90,6 +92,7 @@ export default function CourseDetailScreen() {
       });
       const html = buildRazorpayHtml(orderData);
       setPaymentHtml(html);
+      setCurrentOrderId(orderData.order_id);
       setShowPayment(true);
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Failed to create order');
@@ -141,7 +144,7 @@ function cancel(){msg({type:'dismissed'})}
     try {
       await apiCall('/api/payments/verify', {
         method: 'POST',
-        body: JSON.stringify({ order_id: paymentHtml.match(/order_id:'([^']+)'/)?.[1] || '', payment_id: paymentId, signature, course_id: course.id }),
+        body: JSON.stringify({ order_id: currentOrderId, payment_id: paymentId, signature, course_id: course.id }),
       });
       setEnrolled(true);
       Alert.alert('Payment Successful!', 'You are now enrolled. A receipt has been sent to your email.');
@@ -271,6 +274,18 @@ function cancel(){msg({type:'dismissed'})}
           </View>
         </View>
       </Modal>
+
+      {/* In-App PDF Viewer */}
+      <Modal visible={pdfViewer.visible} animationType="slide" testID="pdf-viewer-modal">
+        <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.white }}>
+          <View style={s.pdfHead}>
+            <TouchableOpacity onPress={() => setPdfViewer({ visible: false, url: '', title: '' })} testID="close-pdf"><Ionicons name="close" size={24} color={COLORS.textPrimary} /></TouchableOpacity>
+            <Text style={s.pdfTitle} numberOfLines={1}>{pdfViewer.title}</Text>
+            <View style={{ width: 24 }} />
+          </View>
+          {pdfViewer.url ? <WebView source={{ uri: pdfViewer.url }} style={{ flex: 1 }} javaScriptEnabled domStorageEnabled testID="pdf-webview" /> : null}
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -322,4 +337,6 @@ const s = StyleSheet.create({
   payCont: { backgroundColor: COLORS.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%', minHeight: 480 },
   payHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   payTitle: { fontSize: 18, fontWeight: '700', color: COLORS.textPrimary },
+  pdfHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  pdfTitle: { fontSize: 16, fontWeight: '700', color: COLORS.textPrimary, flex: 1, textAlign: 'center' },
 });

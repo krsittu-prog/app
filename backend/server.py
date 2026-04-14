@@ -263,6 +263,13 @@ class AnnouncementModel(BaseModel):
     title: str
     message: str
 
+class LiveClassModel(BaseModel):
+    title: str
+    course_id: str
+    scheduled_at: str
+    meeting_url: str = ""
+    description: str = ""
+
 class SectionModel(BaseModel):
     title: str
     order: int = 0
@@ -1004,6 +1011,62 @@ Be helpful, professional, and encouraging. Answer in Hindi or English based on t
     except Exception as e:
         logger.error(f"Chat error: {e}")
         return {"response": "I'm sorry, I'm having trouble right now. Please try again later or contact us at info@gspinnacle.com", "session_id": data.session_id}
+
+
+# ============ LIVE CLASSES ============
+@api_router.post("/live-classes")
+async def create_live_class(data: LiveClassModel, request: Request):
+    await require_admin(request)
+    live_class = {
+        "id": str(uuid.uuid4()),
+        "title": data.title,
+        "course_id": data.course_id,
+        "scheduled_at": data.scheduled_at,
+        "meeting_url": data.meeting_url,
+        "description": data.description,
+        "status": "scheduled",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.live_classes.insert_one(live_class)
+    live_class.pop("_id", None)
+    course = await db.courses.find_one({"id": data.course_id}, {"_id": 0})
+    course_name = course.get("title", "Course") if course else "Course"
+    await send_push_to_all(
+        "🔴 Live Class Scheduled!",
+        f"{data.title} - {course_name}\nScheduled: {data.scheduled_at}",
+        {"type": "live_class", "live_class_id": live_class["id"]}
+    )
+    return live_class
+
+@api_router.get("/live-classes")
+async def list_live_classes(course_id: Optional[str] = None):
+    query = {}
+    if course_id:
+        query["course_id"] = course_id
+    classes = await db.live_classes.find(query, {"_id": 0}).sort("scheduled_at", -1).to_list(50)
+    for c in classes:
+        course = await db.courses.find_one({"id": c.get("course_id")}, {"_id": 0})
+        c["course_name"] = course.get("title", "") if course else ""
+    return {"live_classes": classes}
+
+@api_router.put("/live-classes/{class_id}")
+async def update_live_class(class_id: str, request: Request):
+    await require_admin(request)
+    body = await request.json()
+    body.pop("_id", None)
+    body.pop("id", None)
+    await db.live_classes.update_one({"id": class_id}, {"$set": body})
+    if body.get("status") == "live":
+        lc = await db.live_classes.find_one({"id": class_id}, {"_id": 0})
+        if lc:
+            await send_push_to_all("🔴 LIVE NOW!", f"{lc.get('title', 'Live Class')} is starting now!", {"type": "live_class_started", "live_class_id": class_id, "meeting_url": lc.get("meeting_url", "")})
+    return {"success": True}
+
+@api_router.delete("/live-classes/{class_id}")
+async def delete_live_class(class_id: str, request: Request):
+    await require_admin(request)
+    await db.live_classes.delete_one({"id": class_id})
+    return {"success": True}
 
 # ============ CMS ============
 @api_router.get("/cms")

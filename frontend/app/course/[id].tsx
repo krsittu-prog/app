@@ -8,6 +8,19 @@ import { Ionicons } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
 
+function openVideo(router: any, course: any, video: any) {
+  router.push({
+    pathname: '/player',
+    params: {
+      courseId: course.id,
+      videoId: video.id,
+      videoUrl: video.url,
+      videoTitle: video.title,
+      courseName: course.title,
+    },
+  });
+}
+
 export default function CourseDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -124,16 +137,17 @@ export default function CourseDetailScreen() {
             <View style={styles.videosBox}>
               <Text style={styles.videosTitle}>Course Content ({course.videos.length} videos)</Text>
               {course.videos.map((v: any, i: number) => (
-                <View key={v.id} style={styles.videoRow}>
-                  <View style={styles.videoNum}><Text style={styles.videoNumText}>{i + 1}</Text></View>
+                <TouchableOpacity key={v.id} style={styles.videoRow} onPress={() => openVideo(router, course, v)} testID={`play-video-${v.id}`}>
+                  <View style={styles.videoNum}><Ionicons name="play" size={12} color="#fff" /></View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.videoTitle}>{v.title}</Text>
                     {v.duration > 0 && <Text style={styles.videoDuration}>{Math.floor(v.duration / 60)}:{String(v.duration % 60).padStart(2, '0')} min</Text>}
                   </View>
                   <View style={styles.videoStats}>
+                    <Ionicons name="play-circle" size={20} color={COLORS.primary} />
                     <Text style={styles.viewCount}>{v.total_views || 0} views</Text>
                   </View>
-                </View>
+                </TouchableOpacity>
               ))}
             </View>
           )}

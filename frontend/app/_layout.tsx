@@ -12,6 +12,7 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(admin)" />
         <Stack.Screen name="course/[id]" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="player" options={{ animation: 'slide_from_right' }} />
       </Stack>
     </AuthProvider>
   );

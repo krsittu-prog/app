@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-from fastapi import FastAPI, APIRouter, HTTPException, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os, logging, bcrypt, secrets, httpx, smtplib, json, uuid, razorpay
@@ -41,6 +41,40 @@ if RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET:
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# ============ WEBSOCKET CHAT MANAGER ============
+class ChatManager:
+    def __init__(self):
+        self.rooms: dict = {}
+
+    async def connect(self, ws: WebSocket, room: str, user_info: dict):
+        await ws.accept()
+        if room not in self.rooms:
+            self.rooms[room] = []
+        self.rooms[room].append((ws, user_info))
+
+    def disconnect(self, ws: WebSocket, room: str):
+        if room in self.rooms:
+            self.rooms[room] = [(w, u) for w, u in self.rooms[room] if w != ws]
+            if not self.rooms[room]:
+                del self.rooms[room]
+
+    def get_online_count(self, room: str) -> int:
+        return len(self.rooms.get(room, []))
+
+    async def broadcast(self, message: dict, room: str):
+        if room not in self.rooms:
+            return
+        dead = []
+        for ws, _ in self.rooms[room]:
+            try:
+                await ws.send_json(message)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.disconnect(ws, room)
+
+chat_manager = ChatManager()
 
 # ============ HELPERS ============
 def hash_password(password: str) -> str:
@@ -845,6 +879,61 @@ async def startup():
         logger.info("Sample test seeded")
 
     logger.info("GS Pinnacle IAS Backend startup complete")
+
+# ============ WEBSOCKET LIVE CHAT ============
+@app.websocket("/api/ws/chat/{course_id}")
+async def ws_chat(websocket: WebSocket, course_id: str):
+    user_name = websocket.query_params.get("name", "Anonymous")
+    user_id = websocket.query_params.get("user_id", "")
+    user_role = websocket.query_params.get("role", "student")
+
+    await chat_manager.connect(websocket, course_id, {"name": user_name, "id": user_id})
+    online = chat_manager.get_online_count(course_id)
+    await chat_manager.broadcast({
+        "type": "system",
+        "message": f"{user_name} joined the chat",
+        "online_count": online,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }, course_id)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            msg_data = json.loads(data)
+            message = {
+                "id": str(uuid.uuid4()),
+                "course_id": course_id,
+                "user_id": user_id,
+                "user_name": user_name,
+                "user_role": user_role,
+                "message": msg_data.get("message", ""),
+                "type": "chat",
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.course_chat.insert_one(message)
+            message.pop("_id", None)
+            message["online_count"] = chat_manager.get_online_count(course_id)
+            await chat_manager.broadcast(message, course_id)
+    except WebSocketDisconnect:
+        chat_manager.disconnect(websocket, course_id)
+        online = chat_manager.get_online_count(course_id)
+        await chat_manager.broadcast({
+            "type": "system",
+            "message": f"{user_name} left the chat",
+            "online_count": online,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }, course_id)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        chat_manager.disconnect(websocket, course_id)
+
+# ============ CHAT HISTORY REST ============
+@api_router.get("/courses/{course_id}/chat")
+async def get_chat_history(course_id: str, limit: int = 50):
+    messages = await db.course_chat.find(
+        {"course_id": course_id, "type": "chat"}, {"_id": 0}
+    ).sort("created_at", -1).to_list(limit)
+    messages.reverse()
+    return {"messages": messages}
 
 @app.on_event("shutdown")
 async def shutdown():

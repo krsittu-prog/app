@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, Dimensions, Platform, KeyboardAvoidingView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { WebView } from 'react-native-webview';
 import { useAuth } from '../src/context/AuthContext';
 import { apiCall } from '../src/api';
 import { COLORS } from '../src/theme';
@@ -159,30 +158,53 @@ export default function PlayerScreen() {
         {/* Video Player */}
         <View style={styles.videoContainer}>
           {isYouTube && ytId ? (
-            <WebView
-              ref={webViewRef}
-              source={{ uri: `https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1&playsinline=1` }}
-              style={styles.video}
-              allowsFullscreenVideo
-              mediaPlaybackRequiresUserAction={false}
-              javaScriptEnabled
-              testID="youtube-player"
-            />
+            Platform.OS === 'web' ? (
+              <iframe
+                src={`https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`}
+                style={{ width: '100%', height: '100%', border: 'none' } as any}
+                allow="autoplay; encrypted-media; fullscreen"
+                allowFullScreen
+              />
+            ) : (
+              (() => { const { WebView } = require('react-native-webview'); return (
+                <WebView
+                  ref={webViewRef}
+                  source={{ uri: `https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1&playsinline=1` }}
+                  style={styles.video}
+                  allowsFullscreenVideo
+                  mediaPlaybackRequiresUserAction={false}
+                  javaScriptEnabled
+                  testID="youtube-player"
+                />
+              ); })()
+            )
           ) : videoUrl ? (
-            <WebView
-              ref={webViewRef}
-              source={{ html: `
-                <!DOCTYPE html>
-                <html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0}video{width:100%;height:100%;background:#000}</style></head>
-                <body><video id="v" src="${videoUrl}" controls autoplay playsinline></video>
-                <script>document.getElementById('v').playbackRate=${speed};</script></body></html>
-              ` }}
-              style={styles.video}
-              allowsFullscreenVideo
-              mediaPlaybackRequiresUserAction={false}
-              javaScriptEnabled
-              testID="direct-player"
-            />
+            Platform.OS === 'web' ? (
+              <video
+                src={videoUrl as string}
+                controls
+                autoPlay
+                playsInline
+                style={{ width: '100%', height: '100%', backgroundColor: '#000' } as any}
+              />
+            ) : (
+              (() => { const { WebView } = require('react-native-webview'); return (
+                <WebView
+                  ref={webViewRef}
+                  source={{ html: `
+                    <!DOCTYPE html>
+                    <html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0}video{width:100%;height:100%;background:#000}</style></head>
+                    <body><video id="v" src="${videoUrl}" controls autoplay playsinline></video>
+                    <script>document.getElementById('v').playbackRate=${speed};</script></body></html>
+                  ` }}
+                  style={styles.video}
+                  allowsFullscreenVideo
+                  mediaPlaybackRequiresUserAction={false}
+                  javaScriptEnabled
+                  testID="direct-player"
+                />
+              ); })()
+            )
           ) : (
             <View style={[styles.video, styles.noVideo]}>
               <Ionicons name="videocam-off" size={48} color={COLORS.textMuted} />

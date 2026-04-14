@@ -196,7 +196,9 @@ class TestModel(BaseModel):
     question_paper_url: str = ""
 
 class SubmitTestModel(BaseModel):
-    answer_url: str
+    answer_url: str = ""
+    answer_pdf_base64: str = ""
+    answer_filename: str = ""
 
 class EvaluateModel(BaseModel):
     score: float
@@ -242,6 +244,22 @@ class TeacherModel(BaseModel):
     email: str
     password: str
     assigned_batches: List[str] = []
+
+class ForgotPasswordModel(BaseModel):
+    email: str
+
+class ResetPasswordModel(BaseModel):
+    email: str
+    otp: str
+    new_password: str
+
+class PushTokenModel(BaseModel):
+    token: str
+    platform: str = "unknown"
+
+class AnnouncementModel(BaseModel):
+    title: str
+    message: str
 
 # ============ AUTH ROUTES ============
 @api_router.post("/auth/register")
@@ -331,6 +349,125 @@ async def verify_otp(data: OTPVerifyModel):
     elif otp_type == "email":
         await db.users.update_one({"email": data.identifier}, {"$set": {"email_verified": True}})
     return {"success": True, "message": f"{otp_type} verified successfully"}
+
+# ============ FORGOT PASSWORD ============
+@api_router.post("/auth/forgot-password")
+async def forgot_password(data: ForgotPasswordModel):
+    user = await db.users.find_one({"email": data.email.lower()})
+    if not user:
+        raise HTTPException(status_code=404, detail="No account found with this email")
+    otp = str(secrets.randbelow(900000) + 100000)
+    await db.otp_records.insert_one({
+        "id": str(uuid.uuid4()),
+        "identifier": data.email.lower(),
+        "otp": otp,
+        "type": "password_reset",
+        "verified": False,
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    success = send_email(
+        data.email.lower(),
+        "GS Pinnacle IAS - Password Reset OTP",
+        f"Your password reset OTP is: {otp}\n\nThis OTP is valid for 10 minutes.\nIf you didn't request this, please ignore.\n\n- GS Pinnacle IAS Team"
+    )
+    logger.info(f"Password reset OTP for {data.email}: {otp}")
+    return {"success": True, "message": "Password reset OTP sent to your email", "delivered": success}
+
+@api_router.post("/auth/reset-password")
+async def reset_password(data: ResetPasswordModel):
+    record = await db.otp_records.find_one(
+        {"identifier": data.email.lower(), "otp": data.otp, "type": "password_reset", "verified": False},
+        sort=[("_id", -1)]
+    )
+    if not record:
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+    expiry = record.get("expires_at")
+    if isinstance(expiry, datetime) and expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    if expiry and expiry < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="OTP has expired")
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    await db.otp_records.update_one({"_id": record["_id"]}, {"$set": {"verified": True}})
+    await db.users.update_one(
+        {"email": data.email.lower()},
+        {"$set": {"password_hash": hash_password(data.new_password)}}
+    )
+    return {"success": True, "message": "Password reset successfully"}
+
+# ============ PUSH NOTIFICATIONS ============
+@api_router.post("/push-token")
+async def register_push_token(data: PushTokenModel, request: Request):
+    user = await get_current_user(request)
+    await db.push_tokens.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"user_id": user["id"], "token": data.token, "platform": data.platform, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True
+    )
+    return {"success": True}
+
+async def send_push_notification(user_id: str, title: str, body: str, data: dict = {}):
+    """Send push notification to a specific user via Expo Push API"""
+    token_doc = await db.push_tokens.find_one({"user_id": user_id}, {"_id": 0})
+    if not token_doc or not token_doc.get("token"):
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http_client:
+            resp = await http_client.post(
+                "https://exp.host/--/api/v2/push/send",
+                json={
+                    "to": token_doc["token"],
+                    "title": title,
+                    "body": body,
+                    "data": data,
+                    "sound": "default",
+                },
+                headers={"Content-Type": "application/json"}
+            )
+            logger.info(f"Push notification sent to {user_id}: {resp.status_code}")
+            return resp.status_code == 200
+    except Exception as e:
+        logger.error(f"Push notification error: {e}")
+        return False
+
+async def send_push_to_all(title: str, body: str, data: dict = {}):
+    """Send push notification to all registered users"""
+    tokens = await db.push_tokens.find({}, {"_id": 0}).to_list(10000)
+    push_tokens = [t["token"] for t in tokens if t.get("token")]
+    if not push_tokens:
+        return
+    messages = [{"to": t, "title": title, "body": body, "data": data, "sound": "default"} for t in push_tokens]
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as http_client:
+            await http_client.post(
+                "https://exp.host/--/api/v2/push/send",
+                json=messages,
+                headers={"Content-Type": "application/json"}
+            )
+    except Exception as e:
+        logger.error(f"Bulk push error: {e}")
+
+# ============ ANNOUNCEMENTS ============
+@api_router.post("/announcements")
+async def create_announcement(data: AnnouncementModel, request: Request):
+    await require_admin(request)
+    announcement = {
+        "id": str(uuid.uuid4()),
+        "title": data.title,
+        "message": data.message,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.announcements.insert_one(announcement)
+    announcement.pop("_id", None)
+    # Send push to all users
+    await send_push_to_all(f"📢 {data.title}", data.message, {"type": "announcement"})
+    return announcement
+
+@api_router.get("/announcements")
+async def list_announcements():
+    announcements = await db.announcements.find({}, {"_id": 0}).sort("created_at", -1).to_list(20)
+    return {"announcements": announcements}
 
 # ============ COURSE ROUTES ============
 @api_router.get("/courses")
@@ -562,6 +699,8 @@ async def submit_test(test_id: str, data: SubmitTestModel, request: Request):
         "student_name": user.get("name", ""),
         "student_email": user.get("email", ""),
         "answer_url": data.answer_url,
+        "answer_pdf_base64": data.answer_pdf_base64,
+        "answer_filename": data.answer_filename or "answer.pdf",
         "score": None,
         "feedback": "",
         "evaluated_url": "",
@@ -571,6 +710,7 @@ async def submit_test(test_id: str, data: SubmitTestModel, request: Request):
     await db.test_submissions.insert_one(submission)
     await db.tests.update_one({"id": test_id}, {"$inc": {"submissions_count": 1}})
     submission.pop("_id", None)
+    submission.pop("answer_pdf_base64", None)
     return submission
 
 @api_router.get("/tests/{test_id}/submissions")
@@ -593,6 +733,15 @@ async def evaluate_submission(submission_id: str, data: EvaluateModel, request: 
             "evaluated_at": datetime.now(timezone.utc).isoformat()
         }}
     )
+    # Send push notification to student
+    submission = await db.test_submissions.find_one({"id": submission_id}, {"_id": 0})
+    if submission:
+        await send_push_notification(
+            submission.get("student_id", ""),
+            "📝 Test Evaluated!",
+            f"Your test has been evaluated. Score: {data.score}. {data.feedback[:50] if data.feedback else ''}",
+            {"type": "evaluation", "submission_id": submission_id}
+        )
     return {"success": True}
 
 @api_router.get("/tests/my-submissions")
@@ -640,6 +789,15 @@ async def respond_ticket(ticket_id: str, data: TicketResponseModel, request: Req
         {"id": ticket_id},
         {"$push": {"responses": response_entry}, "$set": {"status": data.status}}
     )
+    # Send push notification to ticket creator
+    ticket = await db.tickets.find_one({"id": ticket_id}, {"_id": 0})
+    if ticket:
+        await send_push_notification(
+            ticket.get("user_id", ""),
+            "🎫 Ticket Update",
+            f"Your ticket '{ticket.get('subject', '')}' has a new response.",
+            {"type": "ticket_response", "ticket_id": ticket_id}
+        )
     return {"success": True}
 
 # ============ AI CHATBOT ============

@@ -1,0 +1,85 @@
+{
+  "summary": "Fourth testing round for GS Pinnacle IAS - 3 NEW FEATURES: 1) Forgot Password (email OTP-based reset for all roles), 2) Push Notifications (Expo Push API integration on evaluation/ticket/announcement), 3) PDF Answer Sheet Upload (expo-document-picker with base64 encoding). Backend: 9/9 tests passed (100%). Frontend: All core features verified via Playwright and code review.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration4_new_features.py",
+    "/app/test_reports/pytest/iteration4_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "✓ Backend: POST /api/auth/forgot-password sends OTP email and returns success (200 OK)",
+    "✓ Backend: Non-existent email returns 404 with clear error message",
+    "✓ Backend: POST /api/auth/reset-password validates OTP before password (correct security order)",
+    "✓ Backend: Invalid OTP rejected with 400 status",
+    "✓ Backend: Password length validation (min 6 chars) implemented at line 390",
+    "✓ Backend: OTP expires after 10 minutes (line 366)",
+    "✓ Backend: OTP logged in backend logs for testing (line 374)",
+    "✓ Backend: POST /api/push-token registers Expo push token for authenticated users",
+    "✓ Backend: Push token registration requires authentication (401 without token)",
+    "✓ Backend: Push tokens stored with user_id, platform, and updated_at timestamp",
+    "✓ Backend: POST /api/announcements creates announcement and sends push to all users",
+    "✓ Backend: send_push_to_all function sends bulk notifications via Expo Push API (lines 434-449)",
+    "✓ Backend: GET /api/announcements returns list sorted by created_at descending",
+    "✓ Backend: Push notifications sent on test evaluation (line 739-744)",
+    "✓ Backend: Push notifications sent on ticket response (line 793-800)",
+    "✓ Backend: POST /api/tests/{testId}/submit accepts answer_pdf_base64 field (line 702)",
+    "✓ Backend: answer_pdf_base64 excluded from response to reduce payload size (line 713)",
+    "✓ Backend: Backward compatibility maintained - answer_url still works (line 701)",
+    "✓ Backend: answer_filename field added for PDF uploads (line 703)",
+    "✓ Frontend: Login page shows 'Forgot Password?' link (testID: forgot-password-link, line 177)",
+    "✓ Frontend: Clicking 'Forgot Password?' shows email input screen with proper UI",
+    "✓ Frontend: Email input has testID: fp-email-input (line 94)",
+    "✓ Frontend: 'Send OTP' button has testID: fp-send-otp-btn (line 96)",
+    "✓ Frontend: After sending OTP, shows OTP + new password form",
+    "✓ Frontend: OTP input has testID: fp-otp-input (line 108)",
+    "✓ Frontend: New password input has testID: fp-new-password-input (line 113)",
+    "✓ Frontend: 'Reset Password' button has testID: fp-reset-btn (line 115)",
+    "✓ Frontend: Success message shows 'Password reset successfully! You can now login.' (line 60)",
+    "✓ Frontend: 'Back to Login' button appears after successful reset (testID: fp-back-to-login-btn, line 122)",
+    "✓ Frontend: Cancel button available at all stages (testID: fp-cancel-btn, line 128)",
+    "✓ Frontend: Admin login still works with krsittu@gmail.com / Indra@4",
+    "✓ Frontend: Redirects to /dashboard for admin role (line 34)",
+    "✓ Frontend: Tests tab shows 'Upload PDF' button on each test (testID: upload-btn-{testId}, line 104)",
+    "✓ Frontend: Upload button uses expo-document-picker for PDF selection (line 33)",
+    "✓ Frontend: PDF converted to base64 before submission (lines 42-52)",
+    "✓ Frontend: Upload shows loading state while processing (line 106-107)",
+    "✓ Frontend: Success alert shown after upload (line 63)",
+    "✓ Frontend: Push notification registration in _layout.tsx (lines 21-47)",
+    "✓ Frontend: Push token sent to backend on app startup (line 40)",
+    "✓ Frontend: Notification handler configured (lines 13-19)",
+    "✓ Code Quality: ForgotPasswordModel validates email field (line 248)",
+    "✓ Code Quality: ResetPasswordModel validates email, otp, new_password (lines 251-254)",
+    "✓ Code Quality: PushTokenModel includes platform field for device tracking (lines 256-258)",
+    "✓ Code Quality: AnnouncementModel validates title and message (lines 260-262)",
+    "✓ Code Quality: SubmitTestModel includes answer_pdf_base64 and answer_filename (lines 198-201)",
+    "✓ Code Quality: send_email function handles SMTP errors gracefully (lines 121-136)",
+    "✓ Code Quality: send_push_notification function handles Expo API errors (lines 410-432)",
+    "✓ Code Quality: Forgot password flow uses same OTP mechanism as phone/email verification",
+    "✓ Code Quality: OTP records have type field to distinguish password_reset from verification (line 364)"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration4_new_features.py"
+  ],
+  "success_rate": {
+    "backend": "100% (9/9 tests passed)",
+    "frontend": "100% (All features verified - forgot password flow, admin login, upload PDF buttons in code)"
+  },
+  "seed_data_creation": "Test students created for push notification and PDF upload testing. 1 test exists in database (GS Paper 1 - Practice Test 1) with 4 submissions.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 4 added 3 major features: 1) Forgot Password - Complete OTP-based password reset flow for all user roles. Login page has 'Forgot Password?' link → email input → OTP sent via email (logged in backend) → OTP + new password form → reset successful → back to login. Backend validates OTP before password (security best practice). 2) Push Notifications - Expo Push API integration. Users register push tokens on app startup. Notifications sent on test evaluation, ticket response, and announcements. Admin can create announcements that push to all users. Works on physical devices only (web preview shows warning). 3) PDF Upload - Students can upload PDF answer sheets via expo-document-picker. PDFs converted to base64 and sent in answer_pdf_base64 field. Upload buttons visible on each test card in Tests tab. Backward compatible with answer_url field. All backend APIs working (forgot-password, reset-password, push-token, announcements, PDF submission). All frontend features verified via Playwright and code review. Admin login still works with krsittu@gmail.com / Indra@4.",
+  "rca_of_issue": "No issues found. All 3 new features working correctly. Push notifications and document picker are MOCKED in web preview (work on physical devices only) as documented in agent notes.",
+  "mocked_features": {
+    "push_notifications": "Expo Push Notifications only work on physical devices with Expo Go app. Web preview shows warning: '[expo-notifications] Listening to push token changes is not yet fully supported on web.' Backend API works correctly, but actual push delivery requires physical device.",
+    "document_picker": "expo-document-picker may not work in web preview. Feature implemented correctly in code (lines 33-70 in tests.tsx), but file selection requires native device capabilities. Backend accepts base64 PDF data correctly."
+  }
+}

@@ -55,7 +55,7 @@ except Exception as e:
                     return result
             return None
         
-        async def find(self, query=None, projection=None):
+        def find(self, query=None, projection=None):
             query = query or {}
             results = []
             for doc in self.data:

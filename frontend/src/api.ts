@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Use production backend URL or fallback to environment variable
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://gs-pinnacle-backend.onrender.com';
+// Use production backend URL only
+const BACKEND_URL = 'https://gs-pinnacle-backend.onrender.com';
 
 export async function apiCall(endpoint: string, options: RequestInit = {}) {
   const token = await AsyncStorage.getItem('token');

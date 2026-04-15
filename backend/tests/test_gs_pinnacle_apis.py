@@ -6,8 +6,8 @@ import pytest
 import requests
 import os
 
-# Use public URL for testing
-BASE_URL = "https://gs-pinnacle-admin.preview.emergentagent.com"
+# Use production backend URL
+BASE_URL = "https://gs-pinnacle-backend.onrender.com"
 
 class TestAuth:
     """Authentication endpoint tests"""
